@@ -8,6 +8,7 @@ Implemented and locally executed on Python 3.14.0:
 - Credential-free trend, conflict, and missing-data reports.
 - Current-time stale-fixture abstention.
 - Source distribution and wheel packaging, with bundled fixture assets.
+- Installed-wheel smoke test from outside the source directory in a separate environment; the conflict scenario produced NEUTRAL with synthetic provenance intact.
 
 Locked direct runtime versions: LangGraph 1.2.18, Pydantic 2.14.1, httpx 0.28.1. Development versions: pytest 9.2.0, pytest-asyncio 1.4.1, Ruff 0.17.3. `uv.lock` captures the complete resolution; uv 0.13.6 was used locally.
 
