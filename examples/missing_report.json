@@ -1,0 +1,172 @@
+{
+  "schema_version": "1.0",
+  "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+  "symbol": "AAPL",
+  "analysis_timestamp": "2026-10-28T07:55:06.428110Z",
+  "evaluated_as_of": "2025-04-23T22:00:00Z",
+  "mode": "deterministic",
+  "data": {
+    "symbol": "AAPL",
+    "source": "bundled-synthetic-fixture",
+    "interval": "1d",
+    "synthetic": true,
+    "retrieved_at": "2026-10-28T07:55:06.426326Z",
+    "candles": [
+      {
+        "timestamp": "2025-04-14T21:00:00Z",
+        "open": 125.2682,
+        "high": 126.4682,
+        "low": 124.4682,
+        "close": 125.4682,
+        "volume": 1072000
+      },
+      {
+        "timestamp": "2025-04-15T21:00:00Z",
+        "open": 126.8319,
+        "high": 128.0319,
+        "low": 126.0319,
+        "close": 127.0319,
+        "volume": 1073000
+      },
+      {
+        "timestamp": "2025-04-16T21:00:00Z",
+        "open": 127.6987,
+        "high": 128.8987,
+        "low": 126.8987,
+        "close": 127.8987,
+        "volume": 1074000
+      },
+      {
+        "timestamp": "2025-04-17T21:00:00Z",
+        "open": 127.6254,
+        "high": 128.8254,
+        "low": 126.8254,
+        "close": 127.8254,
+        "volume": 1075000
+      },
+      {
+        "timestamp": "2025-04-18T21:00:00Z",
+        "open": 126.8112,
+        "high": 128.0112,
+        "low": 126.0112,
+        "close": 127.0112,
+        "volume": 1076000
+      },
+      {
+        "timestamp": "2025-04-21T21:00:00Z",
+        "open": 125.8036,
+        "high": 127.0036,
+        "low": 125.0036,
+        "close": 126.0036,
+        "volume": 1077000
+      },
+      {
+        "timestamp": "2025-04-22T21:00:00Z",
+        "open": 125.2411,
+        "high": 126.4411,
+        "low": 124.4411,
+        "close": 125.4411,
+        "volume": 1078000
+      },
+      {
+        "timestamp": "2025-04-23T21:00:00Z",
+        "open": 125.5529,
+        "high": 126.7529,
+        "low": 124.7529,
+        "close": 125.7529,
+        "volume": 1079000
+      }
+    ],
+    "errors": []
+  },
+  "market_data_timestamp": "2025-04-23T21:00:00Z",
+  "indicators": {
+    "candle_count": 8,
+    "close": 125.7529,
+    "sma20": null,
+    "sma50": null,
+    "rsi14": null,
+    "atr14": null,
+    "return20_pct": null
+  },
+  "technical": {
+    "classification": "INSUFFICIENT_DATA",
+    "summary": "Need at least 50 valid daily candles for SMA50 and trend assessment.",
+    "evidence": [],
+    "risks": [
+      "Need at least 50 valid daily candles for SMA50 and trend assessment."
+    ],
+    "abstain": true
+  },
+  "contrarian": {
+    "classification": "INSUFFICIENT_DATA",
+    "summary": "Need 50 valid candles; received 8; missing 42 for SMA50.",
+    "evidence": [],
+    "risks": [
+      "Need 50 valid candles; received 8; missing 42 for SMA50."
+    ],
+    "abstain": true
+  },
+  "synthesis": {
+    "classification": "INSUFFICIENT_DATA",
+    "summary": "Need 50 valid candles; received 8; missing 42 for SMA50.",
+    "evidence": [],
+    "risks": [
+      "Need 50 valid candles; received 8; missing 42 for SMA50."
+    ],
+    "abstain": true
+  },
+  "classification": "INSUFFICIENT_DATA",
+  "abstained": true,
+  "limitations": [
+    "Current news, fundamentals and liquidity are not researched.",
+    "Daily bars; completeness uses conservative calendar-gap heuristics, not an exchange holiday calendar.",
+    "Synthetic scenario: not actual AAPL prices or investment research.",
+    "Need 50 valid candles; received 8; missing 42 for SMA50.",
+    "Data quality gate failed"
+  ],
+  "dissent": [],
+  "trace": [
+    {
+      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "agent": "market_data",
+      "status": "ok",
+      "duration_ms": 1.422,
+      "provider": "bundled-synthetic-fixture",
+      "error": null
+    },
+    {
+      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "agent": "quality_audit",
+      "status": "degraded",
+      "duration_ms": 0.017,
+      "provider": "python",
+      "error": "Data quality gate failed"
+    },
+    {
+      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "agent": "technical",
+      "status": "ok",
+      "duration_ms": 0.001,
+      "provider": "deterministic-rules",
+      "error": null
+    },
+    {
+      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "agent": "contrarian",
+      "status": "ok",
+      "duration_ms": 0.001,
+      "provider": "deterministic-rules",
+      "error": null
+    },
+    {
+      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "agent": "synthesis",
+      "status": "ok",
+      "duration_ms": 0.0,
+      "provider": "deterministic-rules",
+      "error": null
+    }
+  ],
+  "purpose": "Research only; no orders, position sizing, or investment guarantees."
+}

@@ -1,0 +1,21 @@
+name: Python quality
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.6'
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run pytest -q
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run trading-desk analyze AAPL --scenario missing --as-of 2025-04-23T22:00:00Z
