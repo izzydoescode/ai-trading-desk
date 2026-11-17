@@ -315,3 +315,74 @@ def test_desk_backtest_rejects_a_bad_split(monkeypatch, tmp_path, capsys):
     )
     assert exit_code == 2
     assert "split" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "provider,key_name", [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")]
+)
+def test_desk_provider_requires_its_key(monkeypatch, capsys, provider, key_name):
+    monkeypatch.delenv(key_name, raising=False)
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--provider",
+        provider,
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert key_name in captured.err
+    assert captured.out == ""
+
+
+def test_desk_openai_review_is_metered_and_cached(monkeypatch, tmp_path, capsys):
+    import httpx
+
+    request_count = 0
+    approval_text = json.dumps({"approve": True, "rationale": "Reports agree.", "concerns": []})
+
+    def handler(request):
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "usage": {"input_tokens": 1000, "output_tokens": 100},
+                "output": [
+                    {"type": "message", "content": [{"type": "output_text", "text": approval_text}]}
+                ],
+            },
+        )
+
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "trading_desk.cli.httpx.AsyncClient",
+        lambda: real_async_client(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    arguments = (
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--provider",
+        "openai",
+        "--model-cache-dir",
+        str(tmp_path),
+    )
+    assert run_cli_in_process(monkeypatch, *arguments) == 0
+    first_run = capsys.readouterr()
+    desk_report = json.loads(first_run.out)
+    assert desk_report["mode"] == "llm"
+    assert desk_report["model_review"]["approve"] is True
+    assert desk_report["decision"]["action"] == "TRADE"
+    assert "calls=1" in first_run.err
+    assert "test-key" not in first_run.err + first_run.out
+    assert run_cli_in_process(monkeypatch, *arguments) == 0
+    assert "calls=0" in capsys.readouterr().err
+    assert request_count == 1

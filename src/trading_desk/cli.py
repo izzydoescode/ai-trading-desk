@@ -9,6 +9,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import anthropic
 import httpx
 
 from trading_desk.backtest.runner import (
@@ -19,9 +20,16 @@ from trading_desk.backtest.runner import (
 )
 from trading_desk.desk import run_desk_decision, scan_watchlist
 from trading_desk.graph import run_research
-from trading_desk.llm import OpenAIProvider
+from trading_desk.llm import (
+    AnthropicProvider,
+    CachingReasoningProvider,
+    OpenAIProvider,
+    ReasoningProvider,
+    UsageMeter,
+)
 from trading_desk.markets import US_EQUITIES
 from trading_desk.models import AccountSnapshot, DeskReport, Report
+from trading_desk.settings import load_env_file
 from trading_desk.tools.historical_data import (
     CachingProvider,
     CsvDirectoryProvider,
@@ -37,6 +45,10 @@ DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
 DEFAULT_PAPER_EQUITY = 100_000.0
 DEFAULT_CACHE_DIRECTORY = Path("data/market_cache")
 DEFAULT_HOLDOUT_LEDGER = Path("research/holdout_log.jsonl")
+DEFAULT_MODEL_CACHE_DIRECTORY = Path("data/model_cache")
+DEFAULT_MAXIMUM_MODEL_COST_USD = 0.50
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
 
 def markdown(report: Report) -> str:
@@ -88,6 +100,30 @@ def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
     return FixtureProvider(args.scenario)
 
 
+def build_reasoning_provider(
+    args, client: httpx.AsyncClient, usage_meter: UsageMeter
+) -> ReasoningProvider | None:
+    """Create the model reviewer the user asked for, or None for rules only."""
+    if args.provider == "none":
+        return None
+    if args.provider == "anthropic":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise ValueError("Set ANTHROPIC_API_KEY in .env or the shell for --provider anthropic")
+        provider: ReasoningProvider = AnthropicProvider(
+            anthropic.AsyncAnthropic(),
+            os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
+            usage_meter,
+        )
+    else:
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise ValueError("Set OPENAI_API_KEY in .env or the shell for --provider openai")
+        provider = OpenAIProvider(
+            key, os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL), client, usage_meter
+        )
+    return CachingReasoningProvider(provider, args.model_cache_dir)
+
+
 def parse_evaluation_time(raw_value: str | None) -> datetime | None:
     return datetime.fromisoformat(raw_value.replace("Z", "+00:00")) if raw_value else None
 
@@ -110,12 +146,26 @@ async def execute_desk(args) -> list[DeskReport]:
     """Run the six-agent desk for one symbol (`decide`) or a watchlist (`scan`)."""
     account = AccountSnapshot(equity=args.equity, cash=args.equity)
     evaluation_time = parse_evaluation_time(args.as_of)
+    usage_meter = UsageMeter(args.max_model_cost)
     async with httpx.AsyncClient() as client:
         provider = build_data_provider(args, client)
+        llm = build_reasoning_provider(args, client, usage_meter)
         if args.desk_command == "decide":
-            return [await run_desk_decision(args.symbol, provider, account, evaluation_time)]
-        symbols = args.symbols or list(US_EQUITIES.default_watchlist)
-        return await scan_watchlist(symbols, provider, account, evaluation_time)
+            desk_reports = [
+                await run_desk_decision(args.symbol, provider, account, evaluation_time, llm=llm)
+            ]
+        else:
+            symbols = args.symbols or list(US_EQUITIES.default_watchlist)
+            desk_reports = await scan_watchlist(
+                symbols, provider, account, evaluation_time, llm=llm
+            )
+    if llm is not None:
+        print(
+            f"Model={llm.name}; calls={usage_meter.call_count}; "
+            f"cost=${usage_meter.cost_usd:.4f} of ${args.max_model_cost:.2f} cap",
+            file=sys.stderr,
+        )
+    return desk_reports
 
 
 async def execute_backtest(args) -> BacktestReport:
@@ -197,6 +247,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Permit a repeated out-of-sample look (recorded as contaminated)",
     )
     backtest.add_argument("--holdout-ledger", type=Path, default=DEFAULT_HOLDOUT_LEDGER)
+    for model_command in (decide, scan):
+        model_command.add_argument(
+            "--provider",
+            choices=["none", "anthropic", "openai"],
+            default="none",
+            help="Model that reviews rule-approved trades (default: rules only)",
+        )
+        model_command.add_argument(
+            "--max-model-cost",
+            type=float,
+            default=DEFAULT_MAXIMUM_MODEL_COST_USD,
+            help="Spending cap in US dollars for this run",
+        )
+        model_command.add_argument(
+            "--model-cache-dir", type=Path, default=DEFAULT_MODEL_CACHE_DIRECTORY
+        )
     for desk_command in (decide, scan, backtest):
         add_data_arguments(desk_command)
         desk_command.add_argument(
@@ -260,6 +326,7 @@ def run_desk_command(args) -> int:
 
 
 def main() -> int:
+    load_env_file()
     parser = build_parser()
     args = parser.parse_args()
     if args.source != "fixture" and args.scenario != "trend":
