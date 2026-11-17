@@ -23,6 +23,8 @@ class SentimentReading(Model):
     bullish_post_count: int = Field(ge=0)
     bearish_post_count: int = Field(ge=0)
     neutral_post_count: int = Field(default=0, ge=0)
+    # What is being counted: "post" for a social feed, "headline" for news tone.
+    item_label: str = Field(default="post", min_length=1)
 
 
 def report(sentiment_reading: SentimentReading | None) -> SentimentReport:
@@ -33,6 +35,7 @@ def report(sentiment_reading: SentimentReading | None) -> SentimentReport:
             summary="No sentiment source was supplied to the desk.",
             contrarian_view="Unknown crowd positioning is itself a risk.",
         )
+    item_label = sentiment_reading.item_label
     directional_post_count = (
         sentiment_reading.bullish_post_count + sentiment_reading.bearish_post_count
     )
@@ -42,8 +45,8 @@ def report(sentiment_reading: SentimentReading | None) -> SentimentReport:
             verdict=Classification.INSUFFICIENT_DATA,
             abstain=True,
             summary=(
-                f"Only {total_post_count} post(s) from {sentiment_reading.source}; at least "
-                f"{MINIMUM_POST_COUNT} with a stated direction are needed."
+                f"Only {total_post_count} {item_label}(s) from {sentiment_reading.source}; "
+                f"at least {MINIMUM_POST_COUNT} with a stated direction are needed."
             ),
             contrarian_view="A thin sample says little about the crowd.",
         )
@@ -65,15 +68,15 @@ def report(sentiment_reading: SentimentReading | None) -> SentimentReport:
         verdict=verdict,
         abstain=False,
         summary=(
-            f"{mood_score} of 100 bullish across {directional_post_count} directional posts "
-            f"from {sentiment_reading.source}. Engagement is not evidence."
+            f"{mood_score} of 100 bullish across {directional_post_count} directional "
+            f"{item_label}s from {sentiment_reading.source}. Engagement is not evidence."
         ),
         mood_score=mood_score,
         hype_risk=hype_risk,
         reasons=[
-            f"{sentiment_reading.bullish_post_count} bullish posts",
-            f"{sentiment_reading.bearish_post_count} bearish posts",
-            f"{sentiment_reading.neutral_post_count} neutral posts",
+            f"{sentiment_reading.bullish_post_count} bullish {item_label}s",
+            f"{sentiment_reading.bearish_post_count} bearish {item_label}s",
+            f"{sentiment_reading.neutral_post_count} neutral {item_label}s",
         ],
         contrarian_view=(
             "One-sided optimism often marks crowded positioning."

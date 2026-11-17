@@ -35,8 +35,11 @@ Clock = Callable[[], datetime]
 class NewsFeed(Protocol):
     name: str
 
-    async def fetch(self, symbol: str, start: datetime, end: datetime) -> list[NewsItem]:
-        """Items published in `[start, end]`, newest first. Never anything after `end`."""
+    async def fetch(
+        self, symbol: str, start: datetime, end: datetime, limit: int = MAXIMUM_ITEMS_PER_FETCH
+    ) -> list[NewsItem]:
+        """Up to `limit` items published in `[start, end]`, newest first. Never
+        anything after `end`."""
         ...
 
 
@@ -105,7 +108,9 @@ class FinnhubNewsFeed:
         self._last_request_at: datetime | None = None
         self._weeks_in_memory: dict[tuple[str, date], list[NewsItem]] = {}
 
-    async def fetch(self, symbol: str, start: datetime, end: datetime) -> list[NewsItem]:
+    async def fetch(
+        self, symbol: str, start: datetime, end: datetime, limit: int = MAXIMUM_ITEMS_PER_FETCH
+    ) -> list[NewsItem]:
         if end < start:
             raise ValueError("the news window ends before it starts")
         week_start = monday_of(start.astimezone(UTC).date())
@@ -124,7 +129,7 @@ class FinnhubNewsFeed:
                 continue
             seen_headlines.add(item.headline.casefold())
             visible_items.append(item)
-        return visible_items[:MAXIMUM_ITEMS_PER_FETCH]
+        return visible_items[:limit]
 
     async def _week(self, symbol: str, week_start: date) -> list[NewsItem]:
         cache_key = (symbol, week_start)
