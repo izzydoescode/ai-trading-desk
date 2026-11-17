@@ -8,12 +8,14 @@ substitutes synthetic candles.
 import asyncio
 import csv
 import io
-from datetime import UTC, datetime
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 
 from trading_desk.models import Candle, MarketData
+from trading_desk.tools.market_data import MarketDataProvider
 
 REQUIRED_CSV_COLUMNS = ("date", "open", "high", "low", "close", "volume")
 
@@ -142,3 +144,77 @@ class YahooChartProvider:
                 )
             )
         return candles
+
+
+class CachingProvider:
+    """Stores another provider's successful results on disk and reuses them while fresh.
+
+    Keeps demos and backtests off the network and inside vendor rate limits. Only
+    error-free results with candles are stored, so a failure is always retried.
+    """
+
+    def __init__(
+        self,
+        wrapped_provider: MarketDataProvider,
+        cache_directory: Path,
+        maximum_cache_age: timedelta = timedelta(hours=12),
+    ):
+        self.wrapped_provider = wrapped_provider
+        self.name = wrapped_provider.name
+        self.cache_directory = Path(cache_directory) / wrapped_provider.name
+        self.maximum_cache_age = maximum_cache_age
+
+    async def fetch(self, symbol: str) -> MarketData:
+        cache_path = self.cache_directory / f"{symbol}.json"
+        cached_market_data = self._read(cache_path, symbol)
+        if cached_market_data is not None:
+            return cached_market_data
+        market_data = await self.wrapped_provider.fetch(symbol)
+        if market_data.candles and not market_data.errors:
+            self.cache_directory.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(market_data.model_dump_json())
+        return market_data
+
+    def _read(self, cache_path: Path, symbol: str) -> MarketData | None:
+        if (
+            cache_path.resolve().parent != self.cache_directory.resolve()
+            or not cache_path.is_file()
+        ):
+            return None
+        try:
+            market_data = MarketData.model_validate_json(cache_path.read_text())
+        except ValueError:
+            return None  # A corrupt cache entry is ignored and refetched.
+        is_fresh = datetime.now(UTC) - market_data.retrieved_at <= self.maximum_cache_age
+        return market_data if is_fresh and market_data.symbol == symbol else None
+
+
+class FallbackProvider:
+    """Tries providers in order and returns the first usable result.
+
+    A provider that raises or returns errors is skipped and its failure recorded.
+    If none succeed, the combined errors are returned; nothing is ever invented.
+    """
+
+    def __init__(self, providers: Sequence[MarketDataProvider]):
+        if not providers:
+            raise ValueError("at least one market data provider is required")
+        self.providers = tuple(providers)
+        self.name = "fallback(" + ",".join(provider.name for provider in self.providers) + ")"
+
+    async def fetch(self, symbol: str) -> MarketData:
+        failures: list[str] = []
+        for provider in self.providers:
+            try:
+                market_data = await provider.fetch(symbol)
+            except Exception as error:  # noqa: BLE001 - any provider failure moves to the next
+                # Exception text can carry credential-bearing URLs; keep only the class.
+                failures.append(f"{provider.name}: {type(error).__name__}")
+                continue
+            if market_data.candles and not market_data.errors:
+                return market_data
+            failures.extend(
+                f"{provider.name}: {message}"
+                for message in market_data.errors or ["returned no candles"]
+            )
+        return MarketData(symbol=symbol, source=self.name, errors=failures)
