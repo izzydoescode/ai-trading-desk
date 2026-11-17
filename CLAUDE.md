@@ -128,4 +128,9 @@ One page, no router. `api.ts` is the only file that talks to the server; `state.
 
 ### Error and logging hygiene
 
-Exception messages can contain credential-bearing URLs, so the graph records only the exception *class name* in traces and errors, and never logs provider payloads or model reasoning. Tests assert that secrets in exception text do not reach the report; keep that property when adding error paths.
+Two channels, two rules:
+
+- **Reports, traces and anything published to the UI** carry only an exception's *class name*, because exception text can contain a credential-bearing URL. Tests assert that secrets in exception text do not reach a report; keep that property when adding error paths.
+- **The log** carries the detail. Every handled failure is logged with its stack trace (`logger.warning(..., exc_info=True)` or `logger.exception`), with the symbol, feed or run id needed to find it. `observability.py` configures one `trading_desk` logger whose formatter redacts secrets from every line, stack traces included: the value of any environment variable ending in KEY, SECRET, TOKEN or PASSWORD, plus anything shaped like `apikey=`, `Bearer ...`, `sk-...` or `user:pass@`.
+
+Get a logger with `get_logger("component")`. INFO is for things an operator wants to follow (replay start/finish, trades, fills, exits, kill switch, each metered model call and its cost); DEBUG is for routine skips and rejections; WARNING is for a handled failure or a refused request; ERROR is for a failed run or a configuration error. Never log a provider payload or model output wholesale. `--log-level` and `--log-file` control it; `desk serve` defaults to INFO and writes `logs/trading-desk.log` (rotating, git-ignored). Tests redirect that file to a temporary folder (`tests/conftest.py`).

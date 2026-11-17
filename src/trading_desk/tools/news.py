@@ -16,6 +16,9 @@ from typing import Protocol
 import httpx
 
 from trading_desk.models import NewsItem
+from trading_desk.observability import get_logger
+
+logger = get_logger("tools.news")
 
 MAXIMUM_ITEMS_PER_FETCH = 12
 FINNHUB_COMPANY_NEWS_URL = "https://finnhub.io/api/v1/company-news"
@@ -160,7 +163,8 @@ class FinnhubNewsFeed:
                 self._weeks_in_memory[cache_key] = news_items
                 return news_items
             except ValueError:
-                pass  # A corrupt cache file is ignored and replaced below.
+                # A corrupt cache file is ignored and replaced below.
+                logger.warning("Corrupt news cache ignored path=%s", cache_path, exc_info=True)
         news_items = parse_finnhub_items(await self._request(symbol, week_start, week_end))
         if week_is_finished:
             self._weeks_in_memory[cache_key] = news_items
@@ -192,13 +196,28 @@ class FinnhubNewsFeed:
                     )
                     if response.status_code == 429 or response.status_code >= 500:
                         if attempt < 2:
+                            logger.warning(
+                                "Finnhub news retry symbol=%s week=%s status=%d attempt=%d",
+                                symbol,
+                                week_start,
+                                response.status_code,
+                                attempt + 1,
+                            )
                             await self._sleep(0.5 * 2**attempt)
                             continue
                     response.raise_for_status()
+                    logger.debug("Finnhub news fetched symbol=%s week=%s", symbol, week_start)
                     return response.json()
                 except httpx.TransportError:
                     if attempt == 2:
                         raise
+                    logger.warning(
+                        "Finnhub news transport error symbol=%s week=%s attempt=%d",
+                        symbol,
+                        week_start,
+                        attempt + 1,
+                        exc_info=True,
+                    )
                     await self._sleep(0.5 * 2**attempt)
         raise RuntimeError("news retry budget exhausted")
 

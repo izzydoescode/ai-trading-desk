@@ -20,11 +20,14 @@ from trading_desk.desk import DEFAULT_RISK_LIMITS
 from trading_desk.engine import BarUpdate, run_engine
 from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import DeskEvent, Model, RiskLimits, VenueEvent
+from trading_desk.observability import get_logger
 from trading_desk.paper import PaperVenue
 from trading_desk.paper.journal import Journal
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
+
+logger = get_logger("server.session")
 
 MAXIMUM_BARS_PER_SECOND = 1000.0
 RECENT_EVENT_LIMIT = 200
@@ -226,6 +229,18 @@ class DeskSession:
         halt_events = self.venue.halt(settings.start) if self.kill_switch_engaged else []
         self._not_paused.set()
         self.status = SessionStatus.RUNNING
+        logger.info(
+            "Replay started symbols=%s start=%s end=%s bars_per_second=%g starting_cash=%.2f "
+            "kill_switch=%s news=%s sentiment=%s",
+            ",".join(settings.symbols),
+            settings.start.isoformat(),
+            settings.end.isoformat(),
+            settings.bars_per_second,
+            settings.starting_cash,
+            self.kill_switch_engaged,
+            self.news_feed.name if self.news_feed else "none",
+            self.sentiment_feed.name if self.sentiment_feed else "none",
+        )
         self._publish(self.snapshot())
         # Journal the halt so a run that takes no ideas says why.
         for venue_event in halt_events:
@@ -237,6 +252,7 @@ class DeskSession:
             raise SessionNotRunningError("only a running replay can be paused")
         self._not_paused.clear()
         self.status = SessionStatus.PAUSED
+        logger.info("Replay paused run_id=%s bar_index=%s", self.run_id, self.bar_index)
         self._publish_status()
 
     def resume(self) -> None:
@@ -244,18 +260,26 @@ class DeskSession:
             raise SessionNotRunningError("only a paused replay can be resumed")
         self.status = SessionStatus.RUNNING
         self._not_paused.set()
+        logger.info("Replay resumed run_id=%s bar_index=%s", self.run_id, self.bar_index)
         self._publish_status()
 
     def set_speed(self, bars_per_second: float) -> None:
         if not 0 < bars_per_second <= MAXIMUM_BARS_PER_SECOND:
             raise ValueError(f"speed must be above 0 and at most {MAXIMUM_BARS_PER_SECOND:g}")
         self.bars_per_second = bars_per_second
+        logger.info("Replay speed set bars_per_second=%g", bars_per_second)
         self._publish_status()
 
     def set_kill_switch(self, engaged: bool) -> None:
         """Engage: cancel queued orders and take no new ideas. Open positions keep
         their stops. Release: allow new ideas again from the next bar."""
         self.kill_switch_engaged = engaged
+        logger.warning(
+            "Kill switch %s run_id=%s bar_time=%s",
+            "ENGAGED" if engaged else "released",
+            self.run_id,
+            self.bar_time.isoformat() if self.bar_time else None,
+        )
         if self.venue is not None:
             if engaged and not self.venue.is_halted:
                 halted_at = self.bar_time or datetime.now(UTC)
@@ -301,12 +325,27 @@ class DeskSession:
                 news_tone_feed=self.news_tone_feed,
             )
             self.status = SessionStatus.FINISHED
+            logger.info(
+                "Replay finished run_id=%s bars=%s final_equity=%.2f closed_trades=%d",
+                self.run_id,
+                self.bar_count,
+                venue.equity,
+                len(venue.closed_trades),
+            )
         except asyncio.CancelledError:
             self.status = SessionStatus.IDLE
+            logger.info("Replay stopped run_id=%s bar_index=%s", self.run_id, self.bar_index)
             raise
         except Exception as exc:
-            # Exception text can carry credential-bearing URLs: keep only the class.
+            # Exception text can carry credential-bearing URLs: the published state keeps
+            # only the class. The full stack trace goes to the log, which redacts secrets.
             self.status, self.error = SessionStatus.FAILED, type(exc).__name__
+            logger.exception(
+                "Replay failed run_id=%s bar_index=%s bar_time=%s",
+                self.run_id,
+                self.bar_index,
+                self.bar_time.isoformat() if self.bar_time else None,
+            )
         finally:
             self._not_paused.set()
             self._publish({"type": "account", "account": self._account_fields()})

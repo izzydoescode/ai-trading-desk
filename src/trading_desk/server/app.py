@@ -25,6 +25,7 @@ from pydantic import AwareDatetime, ConfigDict, Field
 from trading_desk.backtest.runner import run_backtest
 from trading_desk.graph import SYMBOL_PATTERN
 from trading_desk.models import Model
+from trading_desk.observability import get_logger
 from trading_desk.server.session import (
     MAXIMUM_BARS_PER_SECOND,
     DeskSession,
@@ -32,6 +33,8 @@ from trading_desk.server.session import (
     SessionBusyError,
     SessionNotRunningError,
 )
+
+logger = get_logger("server.app")
 
 LOCAL_ORIGIN_EXPRESSION = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?"
 LOCAL_ORIGIN_PATTERN = re.compile(LOCAL_ORIGIN_EXPRESSION)
@@ -95,9 +98,16 @@ def create_app(
 
     @app.middleware("http")
     async def reject_writes_from_other_sites(request: Request, call_next):
+        """Refuse any state-changing request whose Origin is not a page on this machine."""
         if request.method not in READ_ONLY_METHODS and not is_trusted_origin(
             request.headers.get("origin")
         ):
+            logger.warning(
+                "Refused %s %s from origin=%s",
+                request.method,
+                request.url.path,
+                request.headers.get("origin"),
+            )
             return JSONResponse(
                 status_code=403, content={"detail": "Requests from other sites are refused"}
             )
@@ -229,10 +239,12 @@ def create_app(
         snapshot instead of a stale backlog.
         """
         if not is_trusted_origin(websocket.headers.get("origin")):
+            logger.warning("Refused event stream from origin=%s", websocket.headers.get("origin"))
             await websocket.close(code=WEBSOCKET_POLICY_VIOLATION)
             return
         await websocket.accept()
         subscriber_queue = session.subscribe()
+        logger.info("Event stream opened subscribers=%d", len(session._subscribers))
         try:
             await websocket.send_json(session.snapshot())
             client_closed = asyncio.create_task(wait_for_disconnect(websocket))
@@ -255,6 +267,7 @@ def create_app(
             pass
         finally:
             session.unsubscribe(subscriber_queue)
+            logger.info("Event stream closed subscribers=%d", len(session._subscribers))
 
     if ui_directory is not None:
         if not (ui_directory / "index.html").is_file():

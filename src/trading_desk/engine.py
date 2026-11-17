@@ -12,6 +12,7 @@ between modes. Every decision, skip, fill and exit is emitted as a `DeskEvent`
 with its reason.
 """
 
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -32,12 +33,15 @@ from trading_desk.models import (
     VenueEvent,
     VenueEventKind,
 )
+from trading_desk.observability import get_logger
 from trading_desk.paper.journal import Journal
 from trading_desk.paper.venue import PaperVenue
 from trading_desk.tools.historical_data import preload_history
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
+
+logger = get_logger("engine")
 
 EventListener = Callable[[DeskEvent], None]
 
@@ -104,6 +108,20 @@ class _EventRecorder:
             detail=detail,
         )
         self.events.append(event)
+        # Trades, fills, exits and data errors are worth a line each; routine skips and
+        # rejections are only shown when debugging.
+        is_notable = agent in {"VENUE", "DATA"} or kind == "TRADE"
+        logger.log(
+            logging.INFO if is_notable else logging.DEBUG,
+            "run_id=%s bar=%s symbol=%s agent=%s kind=%s reason=%s detail=%s",
+            self.run_id,
+            timestamp.isoformat(),
+            symbol,
+            agent,
+            kind,
+            reason,
+            detail,
+        )
         if self.journal is not None:
             self.journal.record_event(event)
         if self.listener is not None:
@@ -290,4 +308,15 @@ async def run_engine(
         )
     result.final_equity = venue.equity
     result.events = recorder.events
+    logger.info(
+        "Engine run complete run_id=%s symbols=%d bars=%d events=%d closed_trades=%d "
+        "starting_equity=%.2f final_equity=%.2f",
+        run_id,
+        len(symbols),
+        result.bars_processed,
+        len(result.events),
+        len(result.closed_trades),
+        result.starting_equity,
+        result.final_equity,
+    )
     return result
