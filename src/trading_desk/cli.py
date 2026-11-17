@@ -6,11 +6,12 @@ import json
 import logging
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import anthropic
 import httpx
+import uvicorn
 
 from trading_desk.backtest.runner import (
     BacktestReport,
@@ -29,6 +30,8 @@ from trading_desk.llm import (
 )
 from trading_desk.markets import US_EQUITIES
 from trading_desk.models import AccountSnapshot, DeskReport, Report
+from trading_desk.paper.journal import Journal
+from trading_desk.server import DeskSession, ReplaySettings, create_app
 from trading_desk.settings import load_env_file
 from trading_desk.tools.historical_data import (
     CachingProvider,
@@ -49,6 +52,15 @@ DEFAULT_MODEL_CACHE_DIRECTORY = Path("data/model_cache")
 DEFAULT_MAXIMUM_MODEL_COST_USD = 0.50
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+# The server has no login, so it only ever listens on this machine.
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+DEFAULT_SERVER_PORT = 8000
+DEFAULT_REPLAY_BARS_PER_SECOND = 2.0
+DEFAULT_REPLAY_WINDOW = timedelta(days=365)
+# The bundled synthetic candles only cover this window and this symbol.
+FIXTURE_REPLAY_START = datetime(2025, 1, 2, tzinfo=UTC)
+FIXTURE_REPLAY_END = datetime(2025, 4, 23, 22, tzinfo=UTC)
+FIXTURE_SYMBOLS = ["AAPL"]
 
 
 def markdown(report: Report) -> str:
@@ -203,6 +215,76 @@ async def execute_backtest(args) -> BacktestReport:
         )
 
 
+def build_replay_settings(args) -> ReplaySettings:
+    """Default replay for `desk serve`: the terminal can override it per run."""
+    is_fixture = args.source == "fixture"
+    end = parse_evaluation_time(args.end) or (
+        FIXTURE_REPLAY_END if is_fixture else datetime.now(UTC)
+    )
+    start = parse_evaluation_time(args.start) or (
+        FIXTURE_REPLAY_START if is_fixture else end - DEFAULT_REPLAY_WINDOW
+    )
+    default_symbols = FIXTURE_SYMBOLS if is_fixture else list(US_EQUITIES.default_watchlist)
+    return ReplaySettings(
+        symbols=[symbol.upper() for symbol in args.symbols] or default_symbols,
+        start=start,
+        end=end,
+        bars_per_second=args.speed,
+        starting_cash=args.equity,
+    )
+
+
+async def serve_desk(args, replay_settings: ReplaySettings) -> None:
+    journal = None
+    if args.journal is not None:
+        args.journal.parent.mkdir(parents=True, exist_ok=True)
+        journal = Journal(args.journal)
+    async with httpx.AsyncClient() as client:
+        desk_session = DeskSession(build_data_provider(args, client), journal=journal)
+        server = uvicorn.Server(
+            uvicorn.Config(
+                create_app(desk_session, replay_settings),
+                host=args.host,
+                port=args.port,
+                log_level="warning",
+            )
+        )
+        try:
+            await server.serve()
+        finally:
+            if journal is not None:
+                journal.close()
+
+
+def run_serve_command(args) -> int:
+    if args.host not in LOOPBACK_HOSTS:
+        print(
+            "Configuration/output error: the desk server has no login and only listens on "
+            "this machine; use --host 127.0.0.1",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        replay_settings = build_replay_settings(args)
+    except ValueError:
+        print(
+            "Configuration/output error: invalid replay window, symbols, speed or equity",
+            file=sys.stderr,
+        )
+        return 2
+    print(
+        f"Desk API on http://{args.host}:{args.port} (replay of {len(replay_settings.symbols)} "
+        "symbol(s), paper venue). Press Ctrl+C to stop.",
+        file=sys.stderr,
+    )
+    try:
+        asyncio.run(serve_desk(args, replay_settings))
+    except (ValueError, OSError) as exc:
+        print(f"Configuration/output error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def describe_metrics(label: str, metrics) -> str:
     def percent(value: float | None) -> str:
         return "n/a" if value is None else f"{value:+.2%}"
@@ -265,6 +347,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Permit a repeated out-of-sample look (recorded as contaminated)",
     )
     backtest.add_argument("--holdout-ledger", type=Path, default=DEFAULT_HOLDOUT_LEDGER)
+    serve = desk_commands.add_parser(
+        "serve", help="Local API server for the terminal (replay, paper venue only)"
+    )
+    serve.add_argument("symbols", nargs="*", help="Symbols to replay (default: market watchlist)")
+    serve.add_argument("--start", help="First replay bar (default: one year before --end)")
+    serve.add_argument("--end", help="Last replay bar (default: now)")
+    serve.add_argument(
+        "--speed", type=float, default=DEFAULT_REPLAY_BARS_PER_SECOND, help="Replay bars per second"
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Loopback address to listen on")
+    serve.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT)
+    serve.add_argument("--journal", type=Path, help="SQLite journal file (default: not kept)")
     for model_command in (decide, scan):
         model_command.add_argument(
             "--provider",
@@ -281,7 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
         model_command.add_argument(
             "--model-cache-dir", type=Path, default=DEFAULT_MODEL_CACHE_DIRECTORY
         )
-    for desk_command in (decide, scan, backtest):
+    for desk_command in (decide, scan, backtest, serve):
         add_data_arguments(desk_command)
         desk_command.add_argument(
             "--equity", type=float, default=DEFAULT_PAPER_EQUITY, help="Paper account equity"
@@ -317,6 +411,8 @@ def run_desk_command(args) -> int:
     print(f"Data={args.source}; desk={args.desk_command}. Paper trading only.", file=sys.stderr)
     if args.desk_command == "backtest":
         return run_backtest_command(args)
+    if args.desk_command == "serve":
+        return run_serve_command(args)
     try:
         desk_reports = asyncio.run(execute_desk(args))
     except (ValueError, OSError) as exc:

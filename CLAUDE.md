@@ -40,6 +40,9 @@ uv run ruff format --check .          # format check (drop --check to apply)
 uv run trading-desk analyze AAPL --as-of 2025-04-23T22:00:00Z
 uv run trading-desk analyze AAPL --scenario conflict --as-of 2025-04-23T22:00:00Z
 uv run trading-desk analyze AAPL --scenario missing  --as-of 2025-04-23T22:00:00Z
+
+# Local API server for the terminal (replay of the bundled fixture, paper venue only)
+uv run trading-desk desk serve            # http://127.0.0.1:8000, see /docs for the endpoints
 ```
 
 CI (`.github/workflows/ci.yml`) runs exactly: `uv sync --locked`, pytest, `ruff check`, `ruff format --check`, and the `missing` scenario smoke run, on Python 3.11–3.14. Run all four before considering a change done.
@@ -94,6 +97,12 @@ Both external dependencies are `typing.Protocol`s with a `name` attribute, injec
 - `ReasoningProvider.reason(role, context) -> Analysis` (`llm.py`): `OpenAIProvider` calls the Responses API directly over httpx — no SDK, `store=false`, one stateless call per role with its own prompt from `PROMPTS`.
 
 Both adapters share a pattern: three attempts with exponential backoff for transport errors, HTTP 429, and 5xx only; other HTTP errors fail immediately. The graph wraps each provider call in an overall `asyncio.wait_for` deadline. External failures are reported as errors — synthetic data is never substituted.
+
+### Desk server (`server/`)
+
+`DeskSession` (`server/session.py`) owns one paper venue and at most one replay. It runs the same `run_engine` loop as the backtest and uses the engine's `on_bar` hook only to pace, pause and publish; it cannot change a decision. `create_app()` (`server/app.py`) exposes it over HTTP (`/api/state`, `/api/replay/*`, `/api/kill-switch`, `/api/mode`, `/api/backtest`) and a WebSocket (`/ws/events`: one snapshot, then `bar`, `event`, `account` and `status` messages).
+
+There is no login, so keep these properties: `desk serve` refuses any non-loopback `--host`; writes and WebSocket connections carrying a non-local `Origin` are refused; the out-of-sample window is never evaluated through the API; `live` mode answers 501. Tests drive the app in-process with `fastapi.testclient.TestClient` and inject the pacing sleep.
 
 ### Error and logging hygiene
 

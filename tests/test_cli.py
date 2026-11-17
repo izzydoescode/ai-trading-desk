@@ -458,3 +458,103 @@ def test_desk_openai_review_is_metered_and_cached(monkeypatch, tmp_path, capsys)
     assert run_cli_in_process(monkeypatch, *arguments) == 0
     assert "calls=0" in capsys.readouterr().err
     assert request_count == 1
+
+
+class FakeUvicornServer:
+    """Stands in for uvicorn so `desk serve` can be tested without opening a port."""
+
+    started_configs: list = []
+
+    def __init__(self, config):
+        self.config = config
+
+    async def serve(self):
+        FakeUvicornServer.started_configs.append(self.config)
+
+
+@pytest.fixture
+def fake_uvicorn_server(monkeypatch):
+    from trading_desk import cli
+
+    FakeUvicornServer.started_configs = []
+    monkeypatch.setattr(cli.uvicorn, "Server", FakeUvicornServer)
+    return FakeUvicornServer
+
+
+def test_desk_serve_builds_a_loopback_app_with_fixture_defaults(
+    monkeypatch, capsys, fake_uvicorn_server
+):
+    from fastapi.testclient import TestClient
+
+    assert run_cli_in_process(monkeypatch, "desk", "serve") == 0
+    (config,) = fake_uvicorn_server.started_configs
+    assert (config.host, config.port) == ("127.0.0.1", 8000)
+    assert "http://127.0.0.1:8000" in capsys.readouterr().err
+    with TestClient(config.app) as client:
+        assert client.get("/api/health").json()["venue"] == "paper"
+        assert client.post("/api/replay/start", json={"bars_per_second": 1000}).status_code == 202
+        settings = client.get("/api/state").json()["settings"]
+    assert settings["symbols"] == ["AAPL"]
+    assert settings["start"].startswith("2025-01-02")
+    assert settings["end"].startswith("2025-04-23")
+
+
+def test_desk_serve_takes_symbols_window_speed_port_and_a_journal(
+    monkeypatch, tmp_path, fake_uvicorn_server
+):
+    journal_path = tmp_path / "nested" / "journal.sqlite"
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "serve",
+        "aapl",
+        "--start",
+        "2025-02-03T00:00:00Z",
+        "--end",
+        "2025-04-01T00:00:00Z",
+        "--speed",
+        "16",
+        "--port",
+        "8123",
+        "--equity",
+        "25000",
+        "--journal",
+        str(journal_path),
+    )
+    assert exit_code == 0
+    (config,) = fake_uvicorn_server.started_configs
+    assert config.port == 8123
+    assert journal_path.is_file()
+
+
+def test_desk_serve_defaults_to_the_watchlist_and_a_trailing_year_for_real_data(
+    monkeypatch, tmp_path
+):
+    from trading_desk import cli
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["trading-desk", "desk", "serve", "--source", "csv", "--csv-dir", str(tmp_path)],
+    )
+    settings = cli.build_replay_settings(cli.build_parser().parse_args())
+    assert settings.symbols == list(cli.US_EQUITIES.default_watchlist)
+    assert settings.end - settings.start == cli.DEFAULT_REPLAY_WINDOW
+
+
+@pytest.mark.parametrize(
+    "extra_arguments,expected_message",
+    [
+        (["--host", "0.0.0.0"], "only listens on this machine"),  # noqa: S104
+        (["--host", "192.168.1.20"], "only listens on this machine"),
+        (["--start", "2025-04-01T00:00:00Z", "--end", "2025-01-01T00:00:00Z"], "invalid replay"),
+        (["--speed", "0"], "invalid replay"),
+        (["--equity", "-5"], "invalid replay"),
+    ],
+)
+def test_desk_serve_refuses_unsafe_or_invalid_configuration(
+    monkeypatch, capsys, fake_uvicorn_server, extra_arguments, expected_message
+):
+    assert run_cli_in_process(monkeypatch, "desk", "serve", *extra_arguments) == 2
+    assert expected_message in capsys.readouterr().err
+    assert fake_uvicorn_server.started_configs == []
