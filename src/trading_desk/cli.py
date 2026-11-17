@@ -6,11 +6,17 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 
+from trading_desk.backtest.runner import (
+    BacktestReport,
+    HoldoutAlreadyUsedError,
+    HoldoutLedger,
+    run_backtest,
+)
 from trading_desk.desk import run_desk_decision, scan_watchlist
 from trading_desk.graph import run_research
 from trading_desk.llm import OpenAIProvider
@@ -30,6 +36,7 @@ from trading_desk.tools.market_data import (
 DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
 DEFAULT_PAPER_EQUITY = 100_000.0
 DEFAULT_CACHE_DIRECTORY = Path("data/market_cache")
+DEFAULT_HOLDOUT_LEDGER = Path("research/holdout_log.jsonl")
 
 
 def markdown(report: Report) -> str:
@@ -111,6 +118,38 @@ async def execute_desk(args) -> list[DeskReport]:
         return await scan_watchlist(symbols, provider, account, evaluation_time)
 
 
+async def execute_backtest(args) -> BacktestReport:
+    start = parse_evaluation_time(args.start)
+    end = parse_evaluation_time(args.end) or datetime.now(UTC)
+    async with httpx.AsyncClient() as client:
+        return await run_backtest(
+            args.symbols or list(US_EQUITIES.default_watchlist),
+            build_data_provider(args, client),
+            start=start,
+            end=end,
+            split=parse_evaluation_time(args.split),
+            evaluate_out_of_sample=args.evaluate_out_of_sample,
+            holdout_ledger=HoldoutLedger(args.holdout_ledger),
+            allow_holdout_reuse=args.allow_holdout_reuse,
+            starting_cash=args.equity,
+        )
+
+
+def describe_metrics(label: str, metrics) -> str:
+    def percent(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:+.2%}"
+
+    def number(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.2f}"
+
+    return (
+        f"{label}: return {percent(metrics.total_return)} vs {metrics.benchmark_symbol} "
+        f"{percent(metrics.benchmark_return)}; max drawdown {percent(metrics.max_drawdown)}; "
+        f"trades {metrics.trade_count}; win rate {percent(metrics.win_rate)}; "
+        f"profit factor {number(metrics.profit_factor)}; Sharpe {number(metrics.sharpe_ratio)}"
+    )
+
+
 def add_data_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--source", choices=DATA_SOURCES, default="fixture")
     command.add_argument("--scenario", choices=["trend", "conflict", "missing"], default="trend")
@@ -142,7 +181,23 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("symbol")
     scan = desk_commands.add_parser("scan", help="Decide and rank a watchlist")
     scan.add_argument("symbols", nargs="*", help="Symbols to scan (default: market watchlist)")
-    for desk_command in (decide, scan):
+    backtest = desk_commands.add_parser("backtest", help="Score the desk over history")
+    backtest.add_argument("symbols", nargs="*", help="Symbols (default: market watchlist)")
+    backtest.add_argument("--start", required=True, help="First bar time, timezone-aware")
+    backtest.add_argument("--end", help="Last bar time (default: now)")
+    backtest.add_argument("--split", help="Start of the out-of-sample window")
+    backtest.add_argument(
+        "--evaluate-out-of-sample",
+        action="store_true",
+        help="Score the out-of-sample window; recorded in the holdout ledger",
+    )
+    backtest.add_argument(
+        "--allow-holdout-reuse",
+        action="store_true",
+        help="Permit a repeated out-of-sample look (recorded as contaminated)",
+    )
+    backtest.add_argument("--holdout-ledger", type=Path, default=DEFAULT_HOLDOUT_LEDGER)
+    for desk_command in (decide, scan, backtest):
         add_data_arguments(desk_command)
         desk_command.add_argument(
             "--equity", type=float, default=DEFAULT_PAPER_EQUITY, help="Paper account equity"
@@ -157,8 +212,27 @@ def write_output(content: str, output_path: Path | None) -> None:
         print(content, end="")
 
 
+def run_backtest_command(args) -> int:
+    try:
+        backtest_report = asyncio.run(execute_backtest(args))
+        write_output(backtest_report.model_dump_json(indent=2) + "\n", args.output)
+    except HoldoutAlreadyUsedError as exc:
+        print(f"Holdout refused: {exc}", file=sys.stderr)
+        return 2
+    except (ValueError, OSError) as exc:
+        print(f"Configuration/output error: {exc}", file=sys.stderr)
+        return 2
+    print(describe_metrics("In-sample", backtest_report.in_sample), file=sys.stderr)
+    if backtest_report.out_of_sample is not None:
+        print(describe_metrics("Out-of-sample", backtest_report.out_of_sample), file=sys.stderr)
+    print(f"Out-of-sample: {backtest_report.out_of_sample_note}", file=sys.stderr)
+    return 0
+
+
 def run_desk_command(args) -> int:
     print(f"Data={args.source}; desk={args.desk_command}. Paper trading only.", file=sys.stderr)
+    if args.desk_command == "backtest":
+        return run_backtest_command(args)
     try:
         desk_reports = asyncio.run(execute_desk(args))
     except (ValueError, OSError) as exc:
