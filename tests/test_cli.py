@@ -558,3 +558,34 @@ def test_desk_serve_refuses_unsafe_or_invalid_configuration(
     assert run_cli_in_process(monkeypatch, "desk", "serve", *extra_arguments) == 2
     assert expected_message in capsys.readouterr().err
     assert fake_uvicorn_server.started_configs == []
+
+
+def test_desk_serve_serves_a_built_terminal_when_asked_or_found(
+    monkeypatch, tmp_path, capsys, fake_uvicorn_server
+):
+    from fastapi.testclient import TestClient
+
+    from trading_desk import cli
+
+    built_ui = tmp_path / "dist"
+    built_ui.mkdir()
+    (built_ui / "index.html").write_text("<!doctype html><title>AI Trading Desk</title>")
+
+    assert run_cli_in_process(monkeypatch, "desk", "serve", "--ui-dir", str(built_ui)) == 0
+    assert "Desk terminal on" in capsys.readouterr().err
+    with TestClient(fake_uvicorn_server.started_configs[-1].app) as client:
+        assert "AI Trading Desk" in client.get("/").text
+
+    monkeypatch.setattr(cli, "DEFAULT_UI_DIRECTORY", built_ui)
+    assert run_cli_in_process(monkeypatch, "desk", "serve") == 0
+    assert "Desk terminal on" in capsys.readouterr().err
+
+    assert run_cli_in_process(monkeypatch, "desk", "serve", "--no-ui") == 0
+    assert "API (no built UI found)" in capsys.readouterr().err
+    with TestClient(fake_uvicorn_server.started_configs[-1].app) as client:
+        assert client.get("/").status_code == 404
+
+
+def test_desk_serve_reports_an_unbuilt_ui_directory(monkeypatch, tmp_path, capsys):
+    assert run_cli_in_process(monkeypatch, "desk", "serve", "--ui-dir", str(tmp_path)) == 2
+    assert "index.html" in capsys.readouterr().err
