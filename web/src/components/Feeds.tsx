@@ -1,0 +1,146 @@
+import type { WatchlistRow } from "../derive";
+import { plainReason, price, shortDate } from "../format";
+import type { DeskEvent, DeskReport } from "../types";
+
+export const JOURNAL_ROWS = 12;
+const AGENT_NAMES = ["HAWKEYE", "NEO", "SNOWDEN", "FAMA", "ODIN", "PICARD"];
+
+interface WatchlistProps {
+  rows: WatchlistRow[];
+  focusedSymbol: string | null;
+  onSelect: (symbol: string) => void;
+}
+
+export function Watchlist({ rows, focusedSymbol, onSelect }: WatchlistProps) {
+  return (
+    <section className="panel watchlist" aria-label="Watchlist">
+      <div className="title">
+        <span className="tag agent-hawkeye">F1 SCOUT</span>
+        <span className="label">HAWKEYE · watchlist rank</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="empty">No symbols ranked yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">SYMBOL</th>
+              <th scope="col" className="number">
+                SCORE
+              </th>
+              <th scope="col" className="number">
+                VERDICT
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.symbol} className={row.symbol === focusedSymbol ? "focused" : undefined}>
+                <th scope="row">
+                  <button
+                    type="button"
+                    className="link"
+                    aria-pressed={row.symbol === focusedSymbol}
+                    onClick={() => onSelect(row.symbol)}
+                  >
+                    {row.symbol}
+                  </button>
+                </th>
+                <td className="number">{row.score === null ? "n/a" : price(row.score)}</td>
+                <td className={`number strong tone-${row.tone}`}>{row.verdict}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+export function NewsMood({ report }: { report: DeskReport | undefined }) {
+  const news = report?.news;
+  const sentiment = report?.sentiment;
+  const items = news
+    ? [
+        ...news.verified_facts.map((item) => ({ item, tag: "VERIFIED FACT", tone: "up" })),
+        ...news.commentary.map((item) => ({ item, tag: "COMMENTARY", tone: "caution" })),
+      ]
+    : [];
+  return (
+    <section className="panel news" aria-label="News and sentiment">
+      <div className="title">
+        <span className="tag agent-snowden">F3 NEWS</span>
+        <span className="label">SNOWDEN · dated sources only</span>
+      </div>
+      {items.map(({ item, tag, tone }) => (
+        <div key={`${item.published_at}${item.headline}`} className={`news-item tone-border-${tone}`}>
+          <div className="label small">
+            {shortDate(item.published_at)} · {item.source} ·{" "}
+            <span className={`strong tone-${tone}`}>{tag}</span>
+          </div>
+          <div>{item.headline}</div>
+        </div>
+      ))}
+      <p className={items.length ? "label small" : "empty"}>
+        {news?.summary ?? "No news report yet."}
+      </p>
+      {news?.red_flags.map((flag) => (
+        <p key={flag} className="tone-down">
+          ! {flag}
+        </p>
+      ))}
+      <div className="title mood-title">
+        <span className="tag agent-fama">F4 MOOD</span>
+        <span className="label">
+          FAMA ·{" "}
+          {sentiment?.mood_score == null
+            ? "no mood reading"
+            : `mood ${sentiment.mood_score} of 100 · hype risk ${sentiment.hype_risk}`}
+        </span>
+      </div>
+      {sentiment?.mood_score != null && (
+        <div
+          className="mood-bar"
+          role="img"
+          aria-label={`Mood score ${sentiment.mood_score} out of 100`}
+        >
+          <div style={{ width: `${sentiment.mood_score}%` }} />
+        </div>
+      )}
+      <p className="label small">{sentiment?.summary ?? "No sentiment report yet."}</p>
+    </section>
+  );
+}
+
+export function Journal({ events }: { events: DeskEvent[] }) {
+  const latestFirst = events.slice(-JOURNAL_ROWS).reverse();
+  return (
+    <section className="panel journal" aria-label="Journal">
+      <div className="panel-head">
+        <span className="heading">JOURNAL</span>
+        <span className="label">every signal, skip, veto and fill, with its reason</span>
+      </div>
+      {latestFirst.length === 0 ? (
+        <p className="empty">Nothing recorded yet.</p>
+      ) : (
+        <table>
+          <tbody>
+            {latestFirst.map((event, index) => (
+              <tr key={`${event.sequence ?? "control"}-${event.timestamp}-${event.kind}-${index}`}>
+                <td className="label">{shortDate(event.timestamp)}</td>
+                <td
+                  className={`strong ${AGENT_NAMES.includes(event.agent) ? `agent-text agent-${event.agent.toLowerCase()}` : ""}`}
+                >
+                  {event.agent}
+                </td>
+                <td className="strong">{event.kind}</td>
+                <td className="amber">{event.symbol}</td>
+                <td className="label reason">{plainReason(event.reason)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
