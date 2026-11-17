@@ -195,11 +195,13 @@ class DeskSession:
         self.settings, self.bars_per_second = settings, settings.bars_per_second
         self.error = None
         self.venue = PaperVenue(settings.starting_cash, self.market_profile)
-        if self.kill_switch_engaged:
-            self.venue.halt(settings.start)
+        halt_events = self.venue.halt(settings.start) if self.kill_switch_engaged else []
         self._not_paused.set()
         self.status = SessionStatus.RUNNING
         self._publish(self.snapshot())
+        # Journal the halt so a run that takes no ideas says why.
+        for venue_event in halt_events:
+            self._publish_control_event(venue_event)
         self._task = asyncio.create_task(self._run(settings, self.venue))
 
     def pause(self) -> None:

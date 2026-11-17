@@ -52,6 +52,7 @@ npm --prefix web run dev            # http://127.0.0.1:5173, proxies /api and /w
 npm --prefix web run typecheck
 npm --prefix web run test:coverage  # Vitest, 80% gate on lines, branches, functions, statements
 npm --prefix web run build          # writes web/dist; `desk serve` then serves it at /
+npm --prefix web run e2e            # Playwright: starts `desk serve` itself on :8137 (build first)
 ```
 
 `.github/workflows/web.yml` runs `npm ci`, typecheck, tests with coverage, build and `npm audit` for `web/`.
