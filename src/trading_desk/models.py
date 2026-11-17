@@ -134,3 +134,253 @@ class Report(Model):
         if self.classification != self.synthesis.classification:
             raise ValueError("report must preserve synthesis classification")
         return self
+
+
+# ---------------------------------------------------------------------------
+# Six-agent desk contracts (schema 2.0). The research `Report` above is unchanged.
+# ---------------------------------------------------------------------------
+
+
+class ScoutVerdict(StrEnum):
+    WATCH = "WATCH"
+    SKIP = "SKIP"
+    NEED_MORE_DATA = "NEED_MORE_DATA"
+
+
+class ScoutReport(Model):
+    """HAWKEYE: is this symbol worth the desk's attention right now?"""
+
+    symbol: str
+    verdict: ScoutVerdict
+    score: float | None = Field(default=None, ge=0, le=1)
+    reasons: list[str] = Field(min_length=1)
+    evidence: list[Evidence]
+
+    @model_validator(mode="after")
+    def score_matches_verdict(self) -> Self:
+        if (self.score is None) != (self.verdict == ScoutVerdict.NEED_MORE_DATA):
+            raise ValueError("a score is required unless more data is needed")
+        return self
+
+
+class TradeSide(StrEnum):
+    LONG = "LONG"
+
+
+class ChartSetup(Model):
+    """NEO: the thesis, its counter-case, and the price levels that define the idea."""
+
+    thesis: Analysis
+    counter_case: Analysis
+    support: float | None = Field(default=None, gt=0)
+    resistance: float | None = Field(default=None, gt=0)
+    entry_reference: float | None = Field(default=None, gt=0)
+    stop: float | None = Field(default=None, gt=0)
+    target: float | None = Field(default=None, gt=0)
+    confirmation: str = Field(min_length=1)
+    invalidation: str = Field(min_length=1)
+
+    @property
+    def has_trade_levels(self) -> bool:
+        return self.entry_reference is not None
+
+    @model_validator(mode="after")
+    def coherent_levels(self) -> Self:
+        levels = (self.entry_reference, self.stop, self.target)
+        if any(level is None for level in levels) and not all(level is None for level in levels):
+            raise ValueError("entry, stop and target must be supplied together")
+        if self.has_trade_levels and not (self.stop < self.entry_reference < self.target):
+            raise ValueError("a long setup needs stop < entry < target")
+        return self
+
+
+class NewsItem(Model):
+    published_at: AwareDatetime
+    source: str = Field(min_length=1)
+    headline: str = Field(min_length=1)
+    url: str | None = None
+    is_commentary: bool = False
+
+
+class NewsReport(Model):
+    """SNOWDEN: dated, sourced catalysts only. Never an invented headline."""
+
+    verdict: Classification
+    abstain: bool
+    summary: str = Field(min_length=1)
+    verified_facts: list[NewsItem] = Field(default_factory=list)
+    commentary: list[NewsItem] = Field(default_factory=list)
+    red_flags: list[str] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def abstention_consistency(self) -> Self:
+        if self.abstain != (self.verdict == Classification.INSUFFICIENT_DATA):
+            raise ValueError("abstain must match INSUFFICIENT_DATA")
+        return self
+
+
+class HypeRisk(StrEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    UNKNOWN = "UNKNOWN"
+
+
+class SentimentReport(Model):
+    """FAMA: crowd mood and hype risk, separated from evidence."""
+
+    verdict: Classification
+    abstain: bool
+    summary: str = Field(min_length=1)
+    mood_score: int | None = Field(default=None, ge=0, le=100)
+    hype_risk: HypeRisk = HypeRisk.UNKNOWN
+    reasons: list[str] = Field(default_factory=list)
+    contrarian_view: str = ""
+
+    @model_validator(mode="after")
+    def abstention_consistency(self) -> Self:
+        if self.abstain != (self.verdict == Classification.INSUFFICIENT_DATA):
+            raise ValueError("abstain must match INSUFFICIENT_DATA")
+        if self.abstain and self.mood_score is not None:
+            raise ValueError("an abstaining sentiment report cannot carry a mood score")
+        return self
+
+
+class RiskLimits(Model):
+    """Hard limits ODIN enforces. Defaults follow the guide's beginner rules."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
+
+    max_loss_per_idea_fraction: float = Field(default=0.0025, gt=0, le=0.05)
+    minimum_reward_to_risk: float = Field(default=2.0, gt=0)
+    maximum_open_ideas: int = Field(default=1, ge=1)
+    maximum_daily_loss_fraction: float = Field(default=0.01, gt=0, le=0.2)
+    maximum_position_fraction: float = Field(default=0.2, gt=0, le=1)
+    kill_switch_engaged: bool = False
+
+
+class AccountSnapshot(Model):
+    """What ODIN needs to know about the paper account at decision time."""
+
+    equity: float = Field(gt=0)
+    cash: float = Field(ge=0)
+    open_idea_count: int = Field(default=0, ge=0)
+    open_risk_amount: float = Field(default=0, ge=0)
+    realized_loss_today: float = Field(default=0, ge=0)
+
+
+class RiskCheck(Model):
+    name: str
+    limit: str
+    actual: str
+    passed: bool
+
+
+class RiskVerdict(StrEnum):
+    APPROVE = "APPROVE"
+    REVISE = "REVISE"
+    REJECT = "REJECT"
+
+
+class TradePlan(Model):
+    """A sized proposal. Code computes every number; models never edit one."""
+
+    symbol: str
+    side: TradeSide
+    entry_reference: float = Field(gt=0)
+    stop: float = Field(gt=0)
+    target: float = Field(gt=0)
+    units: float = Field(gt=0)
+    notional: float = Field(gt=0)
+    risk_amount: float = Field(gt=0)
+    reward_to_risk: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def coherent_levels(self) -> Self:
+        if not (self.stop < self.entry_reference < self.target):
+            raise ValueError("a long plan needs stop < entry < target")
+        return self
+
+
+class RiskReport(Model):
+    """ODIN: PASS or FAIL for every check, and a plan only when all of them pass."""
+
+    verdict: RiskVerdict
+    checks: list[RiskCheck] = Field(min_length=1)
+    plan: TradePlan | None = None
+    failed_checks: list[str] = Field(default_factory=list)
+    revision: str | None = None
+
+    @model_validator(mode="after")
+    def approval_requires_every_check(self) -> Self:
+        every_check_passed = all(check.passed for check in self.checks)
+        if self.verdict == RiskVerdict.APPROVE:
+            if not every_check_passed or self.plan is None or self.failed_checks:
+                raise ValueError("approval requires every check to pass and a sized plan")
+        elif self.plan is not None or not self.failed_checks or every_check_passed:
+            raise ValueError("a non-approval names its failed checks and carries no plan")
+        return self
+
+
+class DecisionAction(StrEnum):
+    TRADE = "TRADE"
+    WAIT = "WAIT"
+    REJECT = "REJECT"
+
+
+class Decision(Model):
+    """PICARD: exactly one outcome, with the reason a reader needs to act on it."""
+
+    action: DecisionAction
+    summary: str = Field(min_length=1)
+    plan: TradePlan | None = None
+    sources: list[str] = Field(default_factory=list)
+    dissent: list[str] = Field(default_factory=list)
+    required_confirmation: str | None = None
+    failed_rule: str | None = None
+
+    @model_validator(mode="after")
+    def outcome_is_explained(self) -> Self:
+        if (self.action == DecisionAction.TRADE) != (self.plan is not None):
+            raise ValueError("a plan is present exactly when the decision is TRADE")
+        if self.action == DecisionAction.WAIT and not self.required_confirmation:
+            raise ValueError("WAIT must state the confirmation it is waiting for")
+        if self.action == DecisionAction.REJECT and not self.failed_rule:
+            raise ValueError("REJECT must name the failed rule")
+        return self
+
+
+class DeskReport(Model):
+    """One complete six-agent decision for one symbol at one evaluation time."""
+
+    schema_version: Literal["2.0"] = "2.0"
+    run_id: str
+    symbol: str
+    market: str
+    analysis_timestamp: AwareDatetime
+    evaluated_as_of: AwareDatetime
+    mode: Literal["deterministic", "llm"]
+    data: MarketData
+    market_data_timestamp: AwareDatetime | None
+    indicators: Indicators
+    account: AccountSnapshot
+    limits: RiskLimits
+    scout: ScoutReport
+    chart: ChartSetup
+    news: NewsReport
+    sentiment: SentimentReport
+    risk: RiskReport
+    decision: Decision
+    limitations: list[str]
+    trace: list[Trace]
+    purpose: str = "Paper trading research only; no real orders and no investment advice."
+
+    @model_validator(mode="after")
+    def risk_manager_has_final_authority(self) -> Self:
+        if self.decision.action == DecisionAction.TRADE:
+            if self.risk.verdict != RiskVerdict.APPROVE:
+                raise ValueError("a TRADE decision requires risk approval")
+            if self.decision.plan != self.risk.plan:
+                raise ValueError("the decision must carry the risk-approved plan unchanged")
+        return self
