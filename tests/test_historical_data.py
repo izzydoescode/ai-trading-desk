@@ -8,8 +8,10 @@ from trading_desk.tools.historical_data import (
     CachingProvider,
     CsvDirectoryProvider,
     FallbackProvider,
+    PreloadedProvider,
     YahooChartProvider,
     parse_daily_bar_csv,
+    preload_history,
 )
 
 VALID_CSV = """Date,Open,High,Low,Close,Volume
@@ -305,3 +307,27 @@ async def test_fallback_reports_every_failure_without_leaking_exception_text():
 def test_fallback_requires_at_least_one_provider():
     with pytest.raises(ValueError):
         FallbackProvider([])
+
+
+async def test_preload_fetches_each_symbol_once_and_serves_from_memory():
+    wrapped_provider = CountingProvider()
+    preloaded_provider = await preload_history(wrapped_provider, ["AAPL", "MSFT"])
+    assert wrapped_provider.fetch_count == 2
+    for _ in range(3):
+        assert (await preloaded_provider.fetch("AAPL")).symbol == "AAPL"
+    assert wrapped_provider.fetch_count == 2
+    assert preloaded_provider.name == "counting"
+
+
+async def test_preload_keeps_failures_as_errors_without_leaking_exception_text():
+    wrapped_provider = CountingProvider(results=[RuntimeError("apikey=SECRET")])
+    preloaded_provider = await preload_history(wrapped_provider, ["AAPL", "MSFT"])
+    failed_history = await preloaded_provider.fetch("AAPL")
+    assert failed_history.errors == ["Market data retrieval failed: RuntimeError"]
+    assert (await preloaded_provider.fetch("MSFT")).candles
+
+
+async def test_preloaded_provider_reports_symbols_it_was_never_given():
+    market_data = await PreloadedProvider("memory", {}).fetch("TSLA")
+    assert market_data.candles == []
+    assert market_data.errors == ["No preloaded history for TSLA"]

@@ -218,3 +218,41 @@ class FallbackProvider:
                 for message in market_data.errors or ["returned no candles"]
             )
         return MarketData(symbol=symbol, source=self.name, errors=failures)
+
+
+class PreloadedProvider:
+    """Serves history that was fetched once up front, for replay and backtests.
+
+    A backtest asks for the same symbols thousands of times; this keeps every
+    request in memory and off the network. Symbols that failed to load keep
+    their original errors.
+    """
+
+    def __init__(self, name: str, history_by_symbol: dict[str, MarketData]):
+        self.name = name
+        self.history_by_symbol = dict(history_by_symbol)
+
+    async def fetch(self, symbol: str) -> MarketData:
+        market_data = self.history_by_symbol.get(symbol)
+        if market_data is None:
+            return MarketData(
+                symbol=symbol, source=self.name, errors=[f"No preloaded history for {symbol}"]
+            )
+        return market_data
+
+
+async def preload_history(
+    data_provider: MarketDataProvider, symbols: Sequence[str]
+) -> PreloadedProvider:
+    """Fetch each symbol once. A provider exception is recorded by class name only."""
+    history_by_symbol: dict[str, MarketData] = {}
+    for symbol in symbols:
+        try:
+            history_by_symbol[symbol] = await data_provider.fetch(symbol)
+        except Exception as error:  # noqa: BLE001 - one bad symbol must not stop the run
+            history_by_symbol[symbol] = MarketData(
+                symbol=symbol,
+                source=data_provider.name,
+                errors=[f"Market data retrieval failed: {type(error).__name__}"],
+            )
+    return PreloadedProvider(data_provider.name, history_by_symbol)
