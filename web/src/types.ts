@@ -194,6 +194,9 @@ export interface ClosedTrade {
   maximum_favorable_excursion_r: number;
   maximum_adverse_excursion_r: number;
   exit_reason: string;
+  /** Set when the closing day touched both stop and target: settled by minute bars
+   *  (INTRADAY) or by assuming the stop came first (ASSUMED_STOP_FIRST). */
+  same_bar_resolution?: "INTRADAY" | "ASSUMED_STOP_FIRST" | null;
   total_cost: number;
   profit_and_loss: number;
   r_multiple: number;

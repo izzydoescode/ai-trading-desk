@@ -73,6 +73,17 @@ describe("trade review", () => {
     expect(screen.getByRole("table", { name: "BY SIDE" })).toBeInTheDocument();
   });
 
+  it("says how a day that touched both stop and target was settled", () => {
+    const trades = structuredClone(review.trades);
+    trades[0]!.trade.same_bar_resolution = "INTRADAY";
+    trades[1]!.trade.same_bar_resolution = "ASSUMED_STOP_FIRST";
+    renderReview({ review: { ...review, trades } });
+    const rows = within(screen.getByRole("table", { name: /EVERY CLOSED TRADE/ })).getAllByRole("row");
+    expect(rows[4]).toHaveTextContent("settled by minute bars");
+    expect(rows[3]).toHaveTextContent("stop assumed first");
+    expect(rows[2]).not.toHaveTextContent(/minute bars|assumed/);
+  });
+
   it("leaves the side table out when every trade was on one side, and shows one dash for no losses", () => {
     renderReview({
       review: {

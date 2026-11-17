@@ -8,7 +8,7 @@ figure that cannot be computed (an average of no trades) is `None`, never zero.
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 
-from trading_desk.models import ClosedTrade, Model
+from trading_desk.models import ClosedTrade, Model, SameBarResolution
 from trading_desk.paper.journal import Journal
 
 # Holding-time groups, in sessions held: (label, longest holding time included).
@@ -60,6 +60,10 @@ class TradeReview(Model):
     average_bars_held: float | None
     largest_win: ClosedTrade | None
     largest_loss: ClosedTrade | None
+    # Trades whose closing bar touched both stop and target: how many were settled by minute
+    # bars, and how many still rest on the assumption that the stop came first.
+    settled_intraday_count: int = 0
+    assumed_stop_first_count: int = 0
     by_strategy: list[GroupResult]
     by_symbol: list[GroupResult]
     by_side: list[GroupResult]
@@ -143,6 +147,12 @@ def review_trades(
         average_bars_held=_average([trade.bars_held for trade in trades]),
         largest_win=max(winners, key=lambda trade: trade.profit_and_loss, default=None),
         largest_loss=min(losers, key=lambda trade: trade.profit_and_loss, default=None),
+        settled_intraday_count=sum(
+            trade.same_bar_resolution is SameBarResolution.INTRADAY for trade in trades
+        ),
+        assumed_stop_first_count=sum(
+            trade.same_bar_resolution is SameBarResolution.ASSUMED_STOP_FIRST for trade in trades
+        ),
         by_strategy=group_trades(trades, lambda trade: trade.strategy.value),
         by_symbol=group_trades(trades, lambda trade: trade.symbol),
         by_side=group_trades(trades, lambda trade: trade.side.value),
@@ -319,6 +329,10 @@ def render_weekly_report(report: WeeklyReport) -> str:
         "| Average sessions held | "
         + ("-" if review.average_bars_held is None else f"{review.average_bars_held:.1f}")
         + " |",
+        f"| Stop and target touched on one day: settled by minute bars | "
+        f"{review.settled_intraday_count} |",
+        f"| Stop and target touched on one day: stop assumed first | "
+        f"{review.assumed_stop_first_count} |",
         "",
     ]
     if review.trade_count == 0:
