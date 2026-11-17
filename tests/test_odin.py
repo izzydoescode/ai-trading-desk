@@ -16,7 +16,7 @@ from trading_desk.models import (
 NO_COST_MARKET = US_EQUITIES.model_copy(update={"commission_rate": 0.0, "slippage_rate": 0.0})
 
 
-def analysis():
+def make_analysis():
     return Analysis(
         classification=Classification.BULLISH,
         summary="Trend up.",
@@ -26,11 +26,11 @@ def analysis():
     )
 
 
-def setup(entry_reference=100.0, stop=95.0, target=115.0):
+def make_chart_report_with_setup(entry_reference=100.0, stop=95.0, target=115.0):
     """A chart report carrying a complete trade setup."""
     return ChartReport(
-        thesis=analysis(),
-        counter_case=analysis(),
+        thesis=make_analysis(),
+        counter_case=make_analysis(),
         setup=TradeSetup(
             strategy="TREND_CONTINUATION",
             entry_reference=entry_reference,
@@ -42,11 +42,11 @@ def setup(entry_reference=100.0, stop=95.0, target=115.0):
     )
 
 
-def chart_without_a_setup():
-    return ChartReport(thesis=analysis(), counter_case=analysis(), watch_for="w")
+def make_chart_report_without_setup():
+    return ChartReport(thesis=make_analysis(), counter_case=make_analysis(), watch_for="w")
 
 
-def account(**overrides):
+def make_account_snapshot(**overrides):
     return AccountSnapshot(**{"equity": 100_000.0, "cash": 100_000.0, **overrides})
 
 
@@ -55,8 +55,8 @@ def evaluate(
 ):
     return odin.evaluate(
         "AAPL",
-        chart_setup or setup(),
-        account_snapshot or account(),
+        chart_setup or make_chart_report_with_setup(),
+        account_snapshot or make_account_snapshot(),
         limits or RiskLimits(),
         market,
         blockers or [],
@@ -87,19 +87,21 @@ def test_trading_costs_reduce_reward_and_increase_risk():
 
 
 def test_units_are_rounded_down_so_risk_never_exceeds_the_limit():
-    report = evaluate(chart_setup=setup(stop=93.0, target=120.0))
+    report = evaluate(chart_setup=make_chart_report_with_setup(stop=93.0, target=120.0))
     assert report.plan.units == 142  # 1,000 / 7 = 142.9
     assert report.plan.risk_amount <= 1000.0
 
 
 def test_fractional_markets_keep_fractional_units():
     fractional_market = NO_COST_MARKET.model_copy(update={"allows_fractional_units": True})
-    report = evaluate(chart_setup=setup(stop=93.0, target=120.0), market=fractional_market)
+    report = evaluate(
+        chart_setup=make_chart_report_with_setup(stop=93.0, target=120.0), market=fractional_market
+    )
     assert report.plan.units == pytest.approx(142.857142, abs=1e-6)
 
 
 def test_reward_to_risk_below_the_floor_asks_for_a_revision_not_a_trade():
-    report = evaluate(chart_setup=setup(target=108.0))
+    report = evaluate(chart_setup=make_chart_report_with_setup(target=108.0))
     assert report.verdict is RiskVerdict.REVISE
     assert report.plan is None
     assert report.failed_checks == [odin.REWARD_TO_RISK_CHECK]
@@ -120,13 +122,13 @@ def test_data_blockers_reject_even_a_well_formed_setup():
 
 
 def test_an_open_idea_blocks_a_second_one():
-    report = evaluate(account_snapshot=account(open_idea_count=1))
+    report = evaluate(account_snapshot=make_account_snapshot(open_idea_count=1))
     assert report.verdict is RiskVerdict.REJECT
     assert "Open ideas" in report.failed_checks
 
 
 def test_missing_levels_are_rejected_for_lack_of_an_invalidation():
-    report = evaluate(chart_setup=chart_without_a_setup())
+    report = evaluate(chart_setup=make_chart_report_without_setup())
     assert report.verdict is RiskVerdict.REJECT
     assert report.failed_checks == ["Invalidation level set"]
     assert check(report, "Invalidation level set").actual == "missing"
@@ -135,7 +137,7 @@ def test_missing_levels_are_rejected_for_lack_of_an_invalidation():
 def test_daily_loss_budget_counts_realised_losses_and_open_stops():
     # Budget 1,000; 600 lost and 300 at risk leaves 100 => 20 shares instead of 200.
     report = evaluate(
-        account_snapshot=account(realized_loss_today=600.0, open_risk_amount=300.0),
+        account_snapshot=make_account_snapshot(realized_loss_today=600.0, open_risk_amount=300.0),
         limits=RiskLimits(maximum_open_ideas=3),
     )
     assert report.verdict is RiskVerdict.APPROVE
@@ -144,25 +146,25 @@ def test_daily_loss_budget_counts_realised_losses_and_open_stops():
 
 
 def test_exhausted_daily_loss_budget_rejects():
-    report = evaluate(account_snapshot=account(realized_loss_today=1_000.0))
+    report = evaluate(account_snapshot=make_account_snapshot(realized_loss_today=1_000.0))
     assert report.verdict is RiskVerdict.REJECT
     assert {"Daily loss budget", "Position size"} <= set(report.failed_checks)
 
 
 def test_position_is_capped_by_its_share_of_equity():
     # A 0.5 stop would size 2,000 shares (200,000); the 20% cap allows 200.
-    report = evaluate(chart_setup=setup(stop=99.5, target=102.0))
+    report = evaluate(chart_setup=make_chart_report_with_setup(stop=99.5, target=102.0))
     assert report.plan.units == 200
     assert report.plan.notional == pytest.approx(20_000.0)
 
 
 def test_position_never_uses_more_cash_than_the_account_holds():
-    report = evaluate(account_snapshot=account(cash=1_000.0))
+    report = evaluate(account_snapshot=make_account_snapshot(cash=1_000.0))
     assert report.plan.units == 10
     assert check(report, "Leverage").passed
 
 
 def test_account_too_small_for_one_unit_is_rejected():
-    report = evaluate(account_snapshot=account(equity=400.0, cash=400.0))
+    report = evaluate(account_snapshot=make_account_snapshot(equity=400.0, cash=400.0))
     assert report.verdict is RiskVerdict.REJECT
     assert "Position size" in report.failed_checks

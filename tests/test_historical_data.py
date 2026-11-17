@@ -81,7 +81,7 @@ async def test_directory_provider_never_reads_outside_its_folder(tmp_path):
     assert market_data.errors
 
 
-def chart_payload(timestamps, opens, highs, lows, closes, volumes):
+def make_chart_payload(timestamps, opens, highs, lows, closes, volumes):
     quote = {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volumes}
     return {
         "chart": {
@@ -104,7 +104,7 @@ async def test_yahoo_request_shape_and_candle_parsing():
         assert request.headers["User-Agent"]
         return httpx.Response(
             200,
-            json=chart_payload(
+            json=make_chart_payload(
                 [1794321000, 1794407400],
                 [351.3500061, 349.5499878],
                 [353.8699951, 355.9100036],
@@ -123,7 +123,7 @@ async def test_yahoo_request_shape_and_candle_parsing():
 
 
 async def test_yahoo_skips_sessions_with_null_prices():
-    payload = chart_payload(
+    payload = make_chart_payload(
         [1794321000, 1794407400, 1794493800],
         [10.0, None, 11.0],
         [11.0, None, 12.0],
@@ -157,7 +157,7 @@ async def test_yahoo_retries_throttling_then_succeeds(monkeypatch):
         attempts.append(request)
         if len(attempts) < 3:
             return httpx.Response(429)
-        return httpx.Response(200, json=chart_payload([1794321000], [1], [2], [1], [2], [5]))
+        return httpx.Response(200, json=make_chart_payload([1794321000], [1], [2], [1], [2], [5]))
 
     market_data = await fetch_with_handler(handler)
     assert len(attempts) == 3
@@ -203,7 +203,7 @@ async def test_yahoo_retries_transport_errors_then_raises(monkeypatch):
 
 
 async def test_yahoo_rejects_incoherent_bars_instead_of_dropping_them():
-    payload = chart_payload([1794321000], [10.0], [9.0], [11.0], [10.0], [1])
+    payload = make_chart_payload([1794321000], [10.0], [9.0], [11.0], [10.0], [1])
     with pytest.raises(ValueError):
         await fetch_with_handler(lambda request: httpx.Response(200, json=payload))
 
@@ -212,7 +212,7 @@ async def no_sleep(seconds):
     return None
 
 
-def one_candle_market_data(symbol="AAPL", source="counting", retrieved_at=None):
+def make_one_candle_market_data(symbol="AAPL", source="counting", retrieved_at=None):
     candle = Candle(
         timestamp=datetime(2025, 1, 2, tzinfo=UTC), open=1, high=2, low=1, close=2, volume=5
     )
@@ -230,7 +230,9 @@ class CountingProvider:
 
     async def fetch(self, symbol):
         self.fetch_count += 1
-        result = self.results.pop(0) if self.results else one_candle_market_data(symbol, self.name)
+        result = (
+            self.results.pop(0) if self.results else make_one_candle_market_data(symbol, self.name)
+        )
         if isinstance(result, Exception):
             raise result
         return result
@@ -250,7 +252,7 @@ async def test_cache_serves_second_request_without_calling_the_provider(tmp_path
 async def test_cache_refetches_when_the_entry_is_too_old(tmp_path):
     stale_retrieval_time = datetime.now(UTC) - timedelta(days=2)
     wrapped_provider = CountingProvider(
-        results=[one_candle_market_data(retrieved_at=stale_retrieval_time)]
+        results=[make_one_candle_market_data(retrieved_at=stale_retrieval_time)]
     )
     caching_provider = CachingProvider(wrapped_provider, tmp_path, timedelta(hours=1))
     await caching_provider.fetch("AAPL")
@@ -273,7 +275,7 @@ async def test_cache_ignores_corrupt_and_mismatched_entries(tmp_path):
     cache_folder = tmp_path / "counting"
     cache_folder.mkdir()
     (cache_folder / "AAPL.json").write_text("{not json")
-    (cache_folder / "MSFT.json").write_text(one_candle_market_data("AAPL").model_dump_json())
+    (cache_folder / "MSFT.json").write_text(make_one_candle_market_data("AAPL").model_dump_json())
     await caching_provider.fetch("AAPL")
     await caching_provider.fetch("MSFT")
     assert wrapped_provider.fetch_count == 2

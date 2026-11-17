@@ -8,7 +8,7 @@ from trading_desk.models import Analysis, Classification
 from trading_desk.tools.market_data import AlphaVantageProvider
 
 
-def response_body(analysis):
+def make_response_body(analysis):
     return {
         "status": "completed",
         "output": [
@@ -35,7 +35,7 @@ async def test_llm_wire_contract_and_parsing():
         assert body["text"]["format"]["strict"] is True
         assert body["store"] is False
         assert request.headers["Authorization"] == "Bearer test-key"
-        return httpx.Response(200, json=response_body(expected))
+        return httpx.Response(200, json=make_response_body(expected))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await OpenAIProvider("test-key", "test-model", client).reason("technical", {})

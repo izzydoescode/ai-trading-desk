@@ -21,7 +21,7 @@ from trading_desk.models import (
 )
 
 
-def analysis(classification=Classification.BULLISH):
+def make_analysis(classification=Classification.BULLISH):
     is_abstaining = classification is Classification.INSUFFICIENT_DATA
     return Analysis(
         classification=classification,
@@ -32,7 +32,7 @@ def analysis(classification=Classification.BULLISH):
     )
 
 
-def scout_report(verdict=ScoutVerdict.WATCH):
+def make_scout_report(verdict=ScoutVerdict.WATCH):
     return ScoutReport(
         symbol="AAPL",
         verdict=verdict,
@@ -42,11 +42,13 @@ def scout_report(verdict=ScoutVerdict.WATCH):
     )
 
 
-def setup(counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"):
+def make_chart_report_with_setup(
+    counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"
+):
     """A chart report carrying a complete trade setup."""
     return ChartReport(
-        thesis=analysis(),
-        counter_case=analysis(counter_case),
+        thesis=make_analysis(),
+        counter_case=make_analysis(counter_case),
         setup=TradeSetup(
             strategy=strategy,
             entry_reference=100.0,
@@ -58,13 +60,13 @@ def setup(counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"):
     )
 
 
-def news_report(verdict=Classification.NEUTRAL):
+def make_news_report(verdict=Classification.NEUTRAL):
     return NewsReport(
         verdict=verdict, abstain=verdict is Classification.INSUFFICIENT_DATA, summary="News view."
     )
 
 
-def sentiment_report(verdict=Classification.NEUTRAL, hype_risk=HypeRisk.LOW):
+def make_sentiment_report(verdict=Classification.NEUTRAL, hype_risk=HypeRisk.LOW):
     is_abstaining = verdict is Classification.INSUFFICIENT_DATA
     return SentimentReport(
         verdict=verdict,
@@ -75,7 +77,7 @@ def sentiment_report(verdict=Classification.NEUTRAL, hype_risk=HypeRisk.LOW):
     )
 
 
-def plan():
+def make_trade_plan():
     return TradePlan(
         symbol="AAPL",
         side=TradeSide.LONG,
@@ -89,12 +91,12 @@ def plan():
     )
 
 
-def approval():
+def make_risk_approval():
     passing = RiskCheck(name="Open ideas", limit="fewer than 1 open", actual="0 open", passed=True)
-    return RiskReport(verdict=RiskVerdict.APPROVE, checks=[passing], plan=plan())
+    return RiskReport(verdict=RiskVerdict.APPROVE, checks=[passing], plan=make_trade_plan())
 
 
-def refusal(verdict, failed_checks, revision=None):
+def make_risk_refusal(verdict, failed_checks, revision=None):
     failing = RiskCheck(name=failed_checks[0], limit="limit", actual="actual", passed=False)
     return RiskReport(
         verdict=verdict, checks=[failing], failed_checks=failed_checks, revision=revision
@@ -103,11 +105,11 @@ def refusal(verdict, failed_checks, revision=None):
 
 def decide(**overrides):
     reports = {
-        "scout_report": scout_report(),
-        "chart": setup(),
-        "news_report": news_report(),
-        "sentiment_report": sentiment_report(),
-        "risk_report": approval(),
+        "scout_report": make_scout_report(),
+        "chart": make_chart_report_with_setup(),
+        "news_report": make_news_report(),
+        "sentiment_report": make_sentiment_report(),
+        "risk_report": make_risk_approval(),
     }
     return picard.decide(**{**reports, **overrides})
 
@@ -115,15 +117,15 @@ def decide(**overrides):
 def test_trade_carries_the_approved_plan_unchanged():
     decision = decide()
     assert decision.action is DecisionAction.TRADE
-    assert decision.plan == plan()
+    assert decision.plan == make_trade_plan()
     assert "ODIN APPROVE" in decision.sources
     assert "maximum loss 250.00" in decision.summary
 
 
 def test_risk_rejection_is_final_whatever_the_other_agents_say():
     decision = decide(
-        risk_report=refusal(RiskVerdict.REJECT, ["Kill switch", "Open ideas"]),
-        sentiment_report=sentiment_report(Classification.BULLISH),
+        risk_report=make_risk_refusal(RiskVerdict.REJECT, ["Kill switch", "Open ideas"]),
+        sentiment_report=make_sentiment_report(Classification.BULLISH),
     )
     assert decision.action is DecisionAction.REJECT
     assert decision.failed_rule == "Kill switch, Open ideas"
@@ -132,7 +134,9 @@ def test_risk_rejection_is_final_whatever_the_other_agents_say():
 
 def test_risk_revision_becomes_wait_with_the_requested_change():
     decision = decide(
-        risk_report=refusal(RiskVerdict.REVISE, ["Reward to risk after costs"], "Widen the target.")
+        risk_report=make_risk_refusal(
+            RiskVerdict.REVISE, ["Reward to risk after costs"], "Widen the target."
+        )
     )
     assert decision.action is DecisionAction.WAIT
     assert decision.required_confirmation == "Widen the target."
@@ -141,11 +145,11 @@ def test_risk_revision_becomes_wait_with_the_requested_change():
 @pytest.mark.parametrize(
     "overrides,expected_text",
     [
-        ({"scout_report": scout_report(ScoutVerdict.SKIP)}, "HAWKEYE"),
-        ({"chart": setup(Classification.BEARISH)}, "counter-case"),
-        ({"news_report": news_report(Classification.BEARISH)}, "SNOWDEN"),
+        ({"scout_report": make_scout_report(ScoutVerdict.SKIP)}, "HAWKEYE"),
+        ({"chart": make_chart_report_with_setup(Classification.BEARISH)}, "counter-case"),
+        ({"news_report": make_news_report(Classification.BEARISH)}, "SNOWDEN"),
         (
-            {"sentiment_report": sentiment_report(Classification.BULLISH, HypeRisk.HIGH)},
+            {"sentiment_report": make_sentiment_report(Classification.BULLISH, HypeRisk.HIGH)},
             "hype",
         ),
     ],
@@ -160,8 +164,8 @@ def test_approved_ideas_still_wait_when_an_agent_objects(overrides, expected_tex
 
 def test_disagreement_and_missing_views_are_kept_as_dissent():
     decision = decide(
-        news_report=news_report(Classification.INSUFFICIENT_DATA),
-        sentiment_report=sentiment_report(Classification.NEUTRAL),
+        news_report=make_news_report(Classification.INSUFFICIENT_DATA),
+        sentiment_report=make_sentiment_report(Classification.NEUTRAL),
     )
     assert decision.action is DecisionAction.TRADE
     assert len(decision.dissent) == 3
@@ -171,15 +175,15 @@ def test_disagreement_and_missing_views_are_kept_as_dissent():
 
 def test_full_agreement_records_no_dissent():
     decision = decide(
-        chart=setup(Classification.BULLISH),
-        news_report=news_report(Classification.BULLISH),
-        sentiment_report=sentiment_report(Classification.BULLISH),
+        chart=make_chart_report_with_setup(Classification.BULLISH),
+        news_report=make_news_report(Classification.BULLISH),
+        sentiment_report=make_sentiment_report(Classification.BULLISH),
     )
     assert decision.action is DecisionAction.TRADE
     assert decision.dissent == []
 
 
-def scout_with(verdict, signals=()):
+def make_scout_report_with_signals(verdict, signals=()):
     from trading_desk.models import ScoutSignal
 
     return ScoutReport(
@@ -196,24 +200,32 @@ def scout_with(verdict, signals=()):
 
 
 def decide_reversion(reversion_scout_report):
-    return decide(scout_report=reversion_scout_report, chart=setup(strategy="BOLLINGER_REVERSION"))
+    return decide(
+        scout_report=reversion_scout_report,
+        chart=make_chart_report_with_setup(strategy="BOLLINGER_REVERSION"),
+    )
 
 
 def test_a_reversion_setup_may_trade_without_a_trend_watch_rating():
-    decision = decide_reversion(scout_with(ScoutVerdict.SKIP))
+    decision = decide_reversion(make_scout_report_with_signals(ScoutVerdict.SKIP))
     assert decision.action is DecisionAction.TRADE
 
 
 def test_a_trend_setup_still_needs_the_watch_rating():
-    decision = decide(scout_report=scout_with(ScoutVerdict.SKIP))
+    decision = decide(scout_report=make_scout_report_with_signals(ScoutVerdict.SKIP))
     assert decision.action is DecisionAction.WAIT
 
 
 def test_a_reversion_setup_waits_on_a_heavy_volume_breakdown_or_missing_data():
-    breakdown = scout_with(ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, True)])
+    breakdown = make_scout_report_with_signals(
+        ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, True)]
+    )
     assert decide_reversion(breakdown).action is DecisionAction.WAIT
-    assert decide_reversion(scout_with(ScoutVerdict.NEED_MORE_DATA)).action is DecisionAction.WAIT
-    quiet_breakdown = scout_with(
+    assert (
+        decide_reversion(make_scout_report_with_signals(ScoutVerdict.NEED_MORE_DATA)).action
+        is DecisionAction.WAIT
+    )
+    quiet_breakdown = make_scout_report_with_signals(
         ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, False)]
     )
     assert decide_reversion(quiet_breakdown).action is DecisionAction.TRADE

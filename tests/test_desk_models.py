@@ -24,7 +24,7 @@ from trading_desk.models import (
 )
 
 
-def bullish_analysis():
+def make_bullish_analysis():
     return Analysis(
         classification=Classification.BULLISH,
         summary="Trend up.",
@@ -34,7 +34,7 @@ def bullish_analysis():
     )
 
 
-def trade_plan(**overrides):
+def make_trade_plan(**overrides):
     values = {
         "symbol": "AAPL",
         "side": TradeSide.LONG,
@@ -49,11 +49,11 @@ def trade_plan(**overrides):
     return TradePlan(**{**values, **overrides})
 
 
-def passing_check():
+def make_passing_check():
     return RiskCheck(name="Open ideas", limit="<= 1", actual="0", passed=True)
 
 
-def failing_check():
+def make_failing_check():
     return RiskCheck(name="Reward to risk", limit=">= 2.00", actual="1.40", passed=False)
 
 
@@ -72,7 +72,7 @@ def test_scout_score_is_required_unless_more_data_is_needed():
         )
 
 
-def trade_setup(**overrides):
+def make_trade_setup(**overrides):
     return TradeSetup(
         **{
             "strategy": "TREND_CONTINUATION",
@@ -91,7 +91,7 @@ def trade_setup(**overrides):
     ["strategy", "entry_reference", "stop", "target", "confirmation", "invalidation"],
 )
 def test_a_trade_setup_cannot_exist_without_every_one_of_its_parts(missing_field):
-    complete = trade_setup().model_dump()
+    complete = make_trade_setup().model_dump()
     del complete[missing_field]
     with pytest.raises(ValidationError):
         TradeSetup(**complete)
@@ -109,12 +109,12 @@ def test_a_trade_setup_cannot_exist_without_every_one_of_its_parts(missing_field
 )
 def test_a_long_trade_setup_needs_stop_below_entry_below_target(levels):
     with pytest.raises(ValidationError):
-        trade_setup(**levels)
+        make_trade_setup(**levels)
 
 
 def test_a_chart_report_may_carry_a_setup_or_say_what_it_is_watching_for():
-    analyses = {"thesis": bullish_analysis(), "counter_case": bullish_analysis()}
-    with_setup = ChartReport(**analyses, setup=trade_setup())
+    analyses = {"thesis": make_bullish_analysis(), "counter_case": make_bullish_analysis()}
+    with_setup = ChartReport(**analyses, setup=make_trade_setup())
     assert with_setup.setup.stop == 95.0
     # No pattern triggered: there is no setup at all, only what NEO is watching for.
     watching = ChartReport(**analyses, watch_for="A close above SMA20 above SMA50.")
@@ -145,46 +145,46 @@ def test_abstaining_sentiment_cannot_carry_a_mood_score():
 @pytest.mark.parametrize("levels", [{"stop": 101.0}, {"target": 99.0}])
 def test_trade_plan_requires_stop_below_entry_below_target(levels):
     with pytest.raises(ValidationError):
-        trade_plan(**levels)
+        make_trade_plan(**levels)
 
 
 def test_risk_approval_requires_every_check_and_a_plan():
-    RiskReport(verdict=RiskVerdict.APPROVE, checks=[passing_check()], plan=trade_plan())
+    RiskReport(verdict=RiskVerdict.APPROVE, checks=[make_passing_check()], plan=make_trade_plan())
     with pytest.raises(ValidationError):
-        RiskReport(verdict=RiskVerdict.APPROVE, checks=[passing_check()])
+        RiskReport(verdict=RiskVerdict.APPROVE, checks=[make_passing_check()])
     with pytest.raises(ValidationError):
         RiskReport(
             verdict=RiskVerdict.APPROVE,
-            checks=[passing_check(), failing_check()],
-            plan=trade_plan(),
+            checks=[make_passing_check(), make_failing_check()],
+            plan=make_trade_plan(),
         )
 
 
 def test_risk_rejection_names_failures_and_carries_no_plan():
     RiskReport(
-        verdict=RiskVerdict.REJECT, checks=[failing_check()], failed_checks=["Reward to risk"]
+        verdict=RiskVerdict.REJECT, checks=[make_failing_check()], failed_checks=["Reward to risk"]
     )
     with pytest.raises(ValidationError):
-        RiskReport(verdict=RiskVerdict.REJECT, checks=[failing_check()])
+        RiskReport(verdict=RiskVerdict.REJECT, checks=[make_failing_check()])
     with pytest.raises(ValidationError):
         RiskReport(
             verdict=RiskVerdict.REJECT,
-            checks=[failing_check()],
+            checks=[make_failing_check()],
             failed_checks=["Reward to risk"],
-            plan=trade_plan(),
+            plan=make_trade_plan(),
         )
     with pytest.raises(ValidationError):
-        RiskReport(verdict=RiskVerdict.REVISE, checks=[passing_check()], failed_checks=["x"])
+        RiskReport(verdict=RiskVerdict.REVISE, checks=[make_passing_check()], failed_checks=["x"])
 
 
 def test_decision_outcomes_must_be_explained():
-    Decision(action=DecisionAction.TRADE, summary="go", plan=trade_plan())
+    Decision(action=DecisionAction.TRADE, summary="go", plan=make_trade_plan())
     Decision(action=DecisionAction.WAIT, summary="hold", required_confirmation="close > SMA20")
     Decision(action=DecisionAction.REJECT, summary="no", failed_rule="Reward to risk")
     with pytest.raises(ValidationError):
         Decision(action=DecisionAction.TRADE, summary="go")
     with pytest.raises(ValidationError):
-        Decision(action=DecisionAction.WAIT, summary="hold", plan=trade_plan())
+        Decision(action=DecisionAction.WAIT, summary="hold", plan=make_trade_plan())
     with pytest.raises(ValidationError):
         Decision(action=DecisionAction.WAIT, summary="hold")
     with pytest.raises(ValidationError):

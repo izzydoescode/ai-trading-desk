@@ -33,13 +33,17 @@ EXPECTED_AGENTS = {
 }
 
 
-def account(**overrides):
+def make_account_snapshot(**overrides):
     return AccountSnapshot(**{"equity": 100_000.0, "cash": 100_000.0, **overrides})
 
 
 async def decide(scenario="trend", symbol="AAPL", as_of=AS_OF, account_snapshot=None, **options):
     return await run_desk_decision(
-        symbol, FixtureProvider(scenario), account_snapshot or account(), as_of, **options
+        symbol,
+        FixtureProvider(scenario),
+        account_snapshot or make_account_snapshot(),
+        as_of,
+        **options,
     )
 
 
@@ -111,7 +115,9 @@ async def test_unsupported_symbol_is_rejected_without_relabelled_data():
 async def test_hard_limits_veto_an_otherwise_tradable_idea(
     limits, account_overrides, expected_failed_check
 ):
-    report = await decide(account_snapshot=account(**account_overrides), limits=limits)
+    report = await decide(
+        account_snapshot=make_account_snapshot(**account_overrides), limits=limits
+    )
     assert report.scout.verdict is ScoutVerdict.WATCH
     assert report.risk.verdict is RiskVerdict.REJECT
     assert expected_failed_check in report.risk.failed_checks
@@ -161,14 +167,16 @@ class FailingProvider:
 
 
 async def test_provider_failure_is_rejected_and_never_leaks_exception_text():
-    report = await run_desk_decision("AAPL", FailingProvider(), account(), AS_OF)
+    report = await run_desk_decision("AAPL", FailingProvider(), make_account_snapshot(), AS_OF)
     assert report.decision.action is DecisionAction.REJECT
     assert "SECRET-TOKEN" not in report.model_dump_json()
     assert any("RuntimeError" in text for text in report.limitations)
 
 
 async def test_scan_ranks_reports_with_watched_symbols_first():
-    reports = await scan_watchlist(["MSFT", "AAPL"], FixtureProvider(), account(), AS_OF)
+    reports = await scan_watchlist(
+        ["MSFT", "AAPL"], FixtureProvider(), make_account_snapshot(), AS_OF
+    )
     assert [report.symbol for report in reports] == ["AAPL", "MSFT"]
     assert reports[0].scout.verdict is ScoutVerdict.WATCH
     assert reports[1].scout.verdict is ScoutVerdict.NEED_MORE_DATA
@@ -257,7 +265,7 @@ class RecordingNewsFeed:
         return self.news_items
 
 
-def news_item(published_at, headline="Guidance raised", **overrides):
+def make_news_item(published_at, headline="Guidance raised", **overrides):
     return NewsItem(
         **{"published_at": published_at, "source": "Reuters", "headline": headline, **overrides}
     )
@@ -268,7 +276,7 @@ def trace_entry(report, agent):
 
 
 async def test_news_feed_is_asked_for_the_week_ending_at_the_evaluation_time():
-    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     report = await decide(news_feed=news_feed)
     assert news_feed.requests == [("AAPL", AS_OF - timedelta(days=7), AS_OF)]
     assert not report.news.abstain
@@ -280,8 +288,8 @@ async def test_news_feed_is_asked_for_the_week_ending_at_the_evaluation_time():
 async def test_a_feed_that_returns_future_news_cannot_leak_it_into_the_report():
     news_feed = RecordingNewsFeed(
         [
-            news_item(AS_OF + timedelta(hours=1), "Tomorrow's headline"),
-            news_item(AS_OF - timedelta(hours=1), "Today's headline"),
+            make_news_item(AS_OF + timedelta(hours=1), "Tomorrow's headline"),
+            make_news_item(AS_OF - timedelta(hours=1), "Today's headline"),
         ]
     )
     report = await decide(news_feed=news_feed)
@@ -311,18 +319,18 @@ async def test_a_slow_news_feed_times_out_and_snowden_abstains(monkeypatch):
 
 
 async def test_items_supplied_directly_win_over_the_feed():
-    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=1), "From the feed")])
+    news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=1), "From the feed")])
     report = await decide(
-        news_feed=news_feed, news_items=[news_item(AS_OF - timedelta(hours=2), "Supplied")]
+        news_feed=news_feed, news_items=[make_news_item(AS_OF - timedelta(hours=2), "Supplied")]
     )
     assert news_feed.requests == []
     assert [item.headline for item in report.news.verified_facts] == ["Supplied"]
 
 
 async def test_watchlist_scan_asks_the_feed_once_per_symbol():
-    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     reports = await scan_watchlist(
-        ["AAPL", "MSFT"], FixtureProvider(), account(), AS_OF, news_feed=news_feed
+        ["AAPL", "MSFT"], FixtureProvider(), make_account_snapshot(), AS_OF, news_feed=news_feed
     )
     assert sorted(symbol for symbol, _, _ in news_feed.requests) == ["AAPL", "MSFT"]
     assert len(reports) == 2
@@ -408,7 +416,7 @@ async def test_a_reading_supplied_directly_wins_over_the_feed():
 
 
 async def test_bearish_news_tone_makes_the_desk_wait_and_bullish_tone_changes_nothing():
-    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     bearish = await decide(
         news_feed=news_feed, news_tone_feed=ScriptedSentimentFeed(bullish=1, bearish=9)
     )
@@ -427,7 +435,7 @@ async def test_bearish_news_tone_makes_the_desk_wait_and_bullish_tone_changes_no
 
 
 async def test_a_failed_tone_reading_falls_back_to_listing_the_items():
-    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     report = await decide(
         news_feed=news_feed,
         news_tone_feed=ScriptedSentimentFeed(error=RuntimeError("sk-SECRET-VALUE")),

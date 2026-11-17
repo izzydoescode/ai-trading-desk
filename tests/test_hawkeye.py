@@ -4,7 +4,7 @@ from trading_desk.agents.hawkeye import WATCH_SCORE_THRESHOLD, rank_watchlist, s
 from trading_desk.models import Indicators, ScoutReport, ScoutVerdict
 
 
-def indicators(**overrides):
+def make_indicators(**overrides):
     values = {
         "candle_count": 80,
         "close": 110.0,
@@ -21,45 +21,45 @@ def indicators(**overrides):
 
 
 def test_strong_aligned_trend_scores_full_marks_and_is_watched():
-    report = scout("AAPL", indicators(), blockers=[])
+    report = scout("AAPL", make_indicators(), blockers=[])
     assert report.verdict is ScoutVerdict.WATCH
     assert report.score == pytest.approx(1.0)
     assert {item.metric for item in report.evidence} >= {"close", "sma20", "sma50", "rsi14"}
 
 
 def test_downtrend_is_skipped_with_the_reason_stated():
-    report = scout("NVDA", indicators(close=90.0, return20_pct=-12.0, rsi14=25.0), blockers=[])
+    report = scout("NVDA", make_indicators(close=90.0, return20_pct=-12.0, rsi14=25.0), blockers=[])
     assert report.verdict is ScoutVerdict.SKIP
     assert report.score == pytest.approx(0.1)
     assert any("below SMA50" in reason for reason in report.reasons)
 
 
 def test_high_score_without_aligned_averages_is_not_watched():
-    report = scout("MSFT", indicators(close=104.0, sma20=106.0), blockers=[])
+    report = scout("MSFT", make_indicators(close=104.0, sma20=106.0), blockers=[])
     assert report.score >= WATCH_SCORE_THRESHOLD
     assert report.verdict is ScoutVerdict.SKIP
 
 
 def test_overbought_and_quiet_volume_earn_no_points():
-    report = scout("TSLA", indicators(rsi14=82.0, relative_volume20=0.4), blockers=[])
+    report = scout("TSLA", make_indicators(rsi14=82.0, relative_volume20=0.4), blockers=[])
     assert report.score == pytest.approx(0.7)
     assert any("extreme" in reason for reason in report.reasons)
 
 
 def test_soft_strength_earns_partial_points_and_negative_return_earns_none():
-    report = scout("AMD", indicators(rsi14=40.0, return20_pct=-3.0), blockers=[])
+    report = scout("AMD", make_indicators(rsi14=40.0, return20_pct=-3.0), blockers=[])
     assert report.score == pytest.approx(0.6)
 
 
 def test_blockers_mean_more_data_is_needed_and_no_score_is_invented():
-    report = scout("AAPL", indicators(), blockers=["Stale daily data"])
+    report = scout("AAPL", make_indicators(), blockers=["Stale daily data"])
     assert report.verdict is ScoutVerdict.NEED_MORE_DATA
     assert report.score is None
     assert report.reasons == ["Stale daily data"]
 
 
 def test_missing_indicators_are_named():
-    report = scout("AAPL", indicators(sma50=None, rsi14=None), blockers=[])
+    report = scout("AAPL", make_indicators(sma50=None, rsi14=None), blockers=[])
     assert report.verdict is ScoutVerdict.NEED_MORE_DATA
     assert report.reasons == ["Indicators unavailable: sma50, rsi14."]
 
@@ -100,25 +100,25 @@ def test_ranking_puts_watch_first_by_score_and_missing_data_last():
 def test_volume_surge_starts_at_fifty_percent_above_the_average(
     relative_volume, is_surge, expected_score
 ):
-    report = scout("AAPL", indicators(relative_volume20=relative_volume), blockers=[])
+    report = scout("AAPL", make_indicators(relative_volume20=relative_volume), blockers=[])
     assert report.volume_surge is is_surge
     assert report.score == pytest.approx(expected_score)
     assert any("Volume surge" in reason for reason in report.reasons) is is_surge
 
 
 def test_volume_surge_reason_states_the_size_of_the_surge():
-    report = scout("AAPL", indicators(relative_volume20=1.8), blockers=[])
+    report = scout("AAPL", make_indicators(relative_volume20=1.8), blockers=[])
     assert "Volume surge: 1.80x its 20-session average (+80%)." in report.reasons
 
 
 def test_a_surge_alone_does_not_make_a_downtrend_worth_watching():
-    report = scout("NVDA", indicators(close=95.0, relative_volume20=4.0), blockers=[])
+    report = scout("NVDA", make_indicators(close=95.0, relative_volume20=4.0), blockers=[])
     assert report.volume_surge
     assert report.verdict is ScoutVerdict.SKIP
 
 
 def test_missing_data_never_reports_a_surge():
-    report = scout("AAPL", indicators(), blockers=["Stale daily data"])
+    report = scout("AAPL", make_indicators(), blockers=["Stale daily data"])
     assert report.volume_surge is False
 
 
@@ -144,7 +144,7 @@ def signal_kinds(report):
 def test_new_fifty_two_week_high_with_volume_is_a_confirmed_signal():
     report = scout(
         "NVDA",
-        indicators(prior_high252=108.0, latest_high=111.0, relative_volume20=1.8),
+        make_indicators(prior_high252=108.0, latest_high=111.0, relative_volume20=1.8),
         blockers=[],
     )
     assert signal_kinds(report) == {"NEW_52_WEEK_HIGH": True}
@@ -159,7 +159,7 @@ def test_new_fifty_two_week_high_with_volume_is_a_confirmed_signal():
 def test_the_same_high_without_volume_is_recorded_as_unconfirmed_and_low_probability():
     report = scout(
         "NVDA",
-        indicators(prior_high252=108.0, latest_high=111.0, relative_volume20=0.9),
+        make_indicators(prior_high252=108.0, latest_high=111.0, relative_volume20=0.9),
         blockers=[],
     )
     assert signal_kinds(report) == {"NEW_52_WEEK_HIGH": False}
@@ -167,21 +167,21 @@ def test_the_same_high_without_volume_is_recorded_as_unconfirmed_and_low_probabi
 
 
 def test_close_above_the_prior_days_high_is_a_breakout_and_an_intraday_poke_is_not():
-    breakout = scout("AAPL", indicators(previous_high=109.0), blockers=[])
+    breakout = scout("AAPL", make_indicators(previous_high=109.0), blockers=[])
     assert signal_kinds(breakout) == {"BREAKOUT_ABOVE_PRIOR_DAY_HIGH": True}
-    poke = scout("AAPL", indicators(previous_high=110.5, latest_high=112.0), blockers=[])
+    poke = scout("AAPL", make_indicators(previous_high=110.5, latest_high=112.0), blockers=[])
     assert signal_kinds(poke) == {}
-    exactly_at_the_level = scout("AAPL", indicators(previous_high=110.0), blockers=[])
+    exactly_at_the_level = scout("AAPL", make_indicators(previous_high=110.0), blockers=[])
     assert signal_kinds(exactly_at_the_level) == {}
 
 
 def test_heavy_volume_breakdown_takes_an_uptrend_off_the_watchlist():
-    confirmed = scout("AAPL", indicators(previous_low=111.0), blockers=[])
+    confirmed = scout("AAPL", make_indicators(previous_low=111.0), blockers=[])
     assert signal_kinds(confirmed) == {"BREAKDOWN_BELOW_PRIOR_DAY_LOW": True}
     assert confirmed.score >= WATCH_SCORE_THRESHOLD
     assert confirmed.verdict is ScoutVerdict.SKIP
     assert "Heavy-volume breakdown: not a long candidate today." in confirmed.reasons
-    quiet = scout("AAPL", indicators(previous_low=111.0, relative_volume20=0.8), blockers=[])
+    quiet = scout("AAPL", make_indicators(previous_low=111.0, relative_volume20=0.8), blockers=[])
     assert signal_kinds(quiet) == {"BREAKDOWN_BELOW_PRIOR_DAY_LOW": False}
     assert quiet.verdict is ScoutVerdict.WATCH
 
@@ -189,7 +189,7 @@ def test_heavy_volume_breakdown_takes_an_uptrend_off_the_watchlist():
 def test_new_fifty_two_week_low_is_reported_for_a_falling_symbol():
     report = scout(
         "INTC",
-        indicators(close=80.0, prior_low252=85.0, latest_low=79.0, previous_low=82.0),
+        make_indicators(close=80.0, prior_low252=85.0, latest_low=79.0, previous_low=82.0),
         blockers=[],
     )
     assert signal_kinds(report) == {
@@ -201,10 +201,12 @@ def test_new_fifty_two_week_low_is_reported_for_a_falling_symbol():
 
 
 def test_short_history_says_the_yearly_range_is_unavailable_instead_of_guessing():
-    report = scout("AAPL", indicators(), blockers=[])
+    report = scout("AAPL", make_indicators(), blockers=[])
     assert report.signals == []
     assert "52-week range unavailable: 80 sessions of history." in report.reasons
-    with_a_year = scout("AAPL", indicators(prior_high252=500.0, latest_high=111.0), blockers=[])
+    with_a_year = scout(
+        "AAPL", make_indicators(prior_high252=500.0, latest_high=111.0), blockers=[]
+    )
     assert not any("unavailable" in reason for reason in with_a_year.reasons)
 
 

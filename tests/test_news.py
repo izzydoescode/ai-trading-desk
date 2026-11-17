@@ -18,7 +18,7 @@ NOW = datetime(2025, 6, 2, 12, tzinfo=UTC)  # a Monday, well after the weeks und
 WEDNESDAY = datetime(2025, 3, 12, 21, tzinfo=UTC)
 
 
-def finnhub_entry(published_at, headline="Apple ships a thing", source="Reuters", **overrides):
+def make_finnhub_entry(published_at, headline="Apple ships a thing", source="Reuters", **overrides):
     return {
         "category": "company",
         "datetime": int(published_at.timestamp()),
@@ -76,11 +76,11 @@ def make_feed(fake_finnhub, cache_directory=None, clock_time=NOW, **options):
 async def test_fetch_returns_only_what_was_published_inside_the_window_newest_first():
     fake_finnhub = FakeFinnhub(
         [
-            finnhub_entry(WEDNESDAY - timedelta(days=9), "Too old"),
-            finnhub_entry(WEDNESDAY - timedelta(days=6), "Last week"),
-            finnhub_entry(WEDNESDAY - timedelta(hours=3), "This morning"),
-            finnhub_entry(WEDNESDAY + timedelta(hours=1), "Not published yet"),
-            finnhub_entry(WEDNESDAY + timedelta(days=2), "Later this week"),
+            make_finnhub_entry(WEDNESDAY - timedelta(days=9), "Too old"),
+            make_finnhub_entry(WEDNESDAY - timedelta(days=6), "Last week"),
+            make_finnhub_entry(WEDNESDAY - timedelta(hours=3), "This morning"),
+            make_finnhub_entry(WEDNESDAY + timedelta(hours=1), "Not published yet"),
+            make_finnhub_entry(WEDNESDAY + timedelta(days=2), "Later this week"),
         ]
     )
     feed, _ = make_feed(fake_finnhub)
@@ -107,10 +107,10 @@ async def test_key_travels_in_a_header_and_never_in_the_url():
 
 async def test_duplicates_are_dropped_and_the_result_is_capped():
     entries = [
-        finnhub_entry(WEDNESDAY - timedelta(minutes=minute), f"Headline {minute}")
+        make_finnhub_entry(WEDNESDAY - timedelta(minutes=minute), f"Headline {minute}")
         for minute in range(30)
     ]
-    entries.append(finnhub_entry(WEDNESDAY - timedelta(minutes=40), "HEADLINE 0"))
+    entries.append(make_finnhub_entry(WEDNESDAY - timedelta(minutes=40), "HEADLINE 0"))
     feed, _ = make_feed(FakeFinnhub(entries))
     news_items = await feed.fetch("AAPL", WEDNESDAY - timedelta(days=1), WEDNESDAY)
     assert len(news_items) == MAXIMUM_ITEMS_PER_FETCH
@@ -122,8 +122,10 @@ async def test_opinion_outlets_are_marked_as_commentary():
     feed, _ = make_feed(
         FakeFinnhub(
             [
-                finnhub_entry(WEDNESDAY - timedelta(hours=1), "Why it will moon", "SeekingAlpha"),
-                finnhub_entry(WEDNESDAY - timedelta(hours=2), "Earnings date set", "CNBC"),
+                make_finnhub_entry(
+                    WEDNESDAY - timedelta(hours=1), "Why it will moon", "SeekingAlpha"
+                ),
+                make_finnhub_entry(WEDNESDAY - timedelta(hours=2), "Earnings date set", "CNBC"),
             ]
         )
     )
@@ -135,7 +137,7 @@ async def test_opinion_outlets_are_marked_as_commentary():
 
 
 async def test_finished_weeks_are_cached_on_disk_and_the_current_week_is_not(tmp_path):
-    fake_finnhub = FakeFinnhub([finnhub_entry(WEDNESDAY - timedelta(hours=1), "Cached item")])
+    fake_finnhub = FakeFinnhub([make_finnhub_entry(WEDNESDAY - timedelta(hours=1), "Cached item")])
     feed, _ = make_feed(fake_finnhub, tmp_path)
     await feed.fetch("AAPL", WEDNESDAY - timedelta(days=1), WEDNESDAY)
     await feed.fetch("AAPL", WEDNESDAY - timedelta(days=1), WEDNESDAY)
@@ -170,7 +172,7 @@ async def test_requests_are_spaced_to_respect_the_rate_limit():
 @pytest.mark.parametrize("failure_status", [429, 500, 503])
 async def test_rate_limit_and_server_errors_are_retried(failure_status):
     fake_finnhub = FakeFinnhub(
-        [finnhub_entry(WEDNESDAY - timedelta(hours=1))],
+        [make_finnhub_entry(WEDNESDAY - timedelta(hours=1))],
         failures_before_success=2,
         failure_status=failure_status,
     )
@@ -215,7 +217,7 @@ async def test_backwards_window_is_rejected():
 
 
 def test_unusable_entries_are_dropped_not_invented():
-    good = finnhub_entry(WEDNESDAY)
+    good = make_finnhub_entry(WEDNESDAY)
     news_items = parse_finnhub_items(
         [
             good,

@@ -47,14 +47,14 @@ class FakeAnthropicMessages:
         )
 
 
-def anthropic_provider(parsed_output, stop_reason="end_turn", usage_meter=None):
+def make_anthropic_provider(parsed_output, stop_reason="end_turn", usage_meter=None):
     messages = FakeAnthropicMessages(parsed_output, stop_reason)
     provider = AnthropicProvider(SimpleNamespace(messages=messages), usage_meter=usage_meter)
     return provider, messages
 
 
 async def test_anthropic_reason_sends_schema_and_data_separately_from_instructions():
-    provider, messages = anthropic_provider(ABSTAINING_ANALYSIS)
+    provider, messages = make_anthropic_provider(ABSTAINING_ANALYSIS)
     result = await provider.reason("technical", {"symbol": "AAPL"})
     request = messages.requests[0]
     assert result == ABSTAINING_ANALYSIS
@@ -66,7 +66,7 @@ async def test_anthropic_reason_sends_schema_and_data_separately_from_instructio
 
 
 async def test_anthropic_gate_uses_the_gate_instructions_and_schema():
-    provider, messages = anthropic_provider(APPROVAL)
+    provider, messages = make_anthropic_provider(APPROVAL)
     assert await provider.review_trade({"plan": {}}) == APPROVAL
     assert messages.requests[0]["system"] == GATE_INSTRUCTIONS
     assert messages.requests[0]["output_format"] is GateVerdict
@@ -79,14 +79,14 @@ async def test_anthropic_gate_uses_the_gate_instructions_and_schema():
 async def test_anthropic_refusal_truncation_or_missing_output_is_an_error(
     parsed_output, stop_reason
 ):
-    provider, _ = anthropic_provider(parsed_output, stop_reason)
+    provider, _ = make_anthropic_provider(parsed_output, stop_reason)
     with pytest.raises(ValueError, match="unusable"):
         await provider.review_trade({})
 
 
 async def test_usage_is_metered_in_tokens_and_dollars():
     usage_meter = UsageMeter()
-    provider, _ = anthropic_provider(APPROVAL, usage_meter=usage_meter)
+    provider, _ = make_anthropic_provider(APPROVAL, usage_meter=usage_meter)
     await provider.review_trade({})
     await provider.review_trade({})
     assert usage_meter.call_count == 2
@@ -98,7 +98,7 @@ async def test_usage_is_metered_in_tokens_and_dollars():
 
 async def test_cost_cap_stops_further_calls_before_they_are_sent():
     usage_meter = UsageMeter(maximum_cost_usd=0.0002)
-    provider, messages = anthropic_provider(APPROVAL, usage_meter=usage_meter)
+    provider, messages = make_anthropic_provider(APPROVAL, usage_meter=usage_meter)
     await provider.review_trade({})
     with pytest.raises(CostCapExceededError):
         await provider.review_trade({})
@@ -214,7 +214,7 @@ TONE_CONTEXT = {
 
 
 async def test_anthropic_headline_tone_uses_its_own_instructions_and_schema():
-    provider, messages = anthropic_provider(TONE)
+    provider, messages = make_anthropic_provider(TONE)
     assert await provider.classify_headlines(TONE_CONTEXT) == TONE
     request = messages.requests[0]
     assert request["system"] == TONE_INSTRUCTIONS
@@ -223,7 +223,7 @@ async def test_anthropic_headline_tone_uses_its_own_instructions_and_schema():
     # Rote labelling runs without reasoning and with room for every label.
     assert request["thinking"] == {"type": "disabled"}
     assert request["max_tokens"] == 4000
-    review_provider, review_messages = anthropic_provider(APPROVAL)
+    review_provider, review_messages = make_anthropic_provider(APPROVAL)
     await review_provider.review_trade({"plan": {}})
     assert "thinking" not in review_messages.requests[0]
     assert review_messages.requests[0]["max_tokens"] == 2000

@@ -16,7 +16,7 @@ LAST_BAR = datetime(2025, 4, 23, 21, tzinfo=UTC)
 STARTING_CASH = 100_000.0
 
 
-def trending_candles(session_count=90, daily_gain=0.4, start_price=100.0, volume=1_000_000):
+def make_trending_candles(session_count=90, daily_gain=0.4, start_price=100.0, volume=1_000_000):
     """A steady uptrend with small pullbacks every fifth session, on weekdays only."""
     candles, price, session_date = [], start_price, FIRST_BAR
     while len(candles) < session_count:
@@ -121,7 +121,7 @@ async def test_symbol_with_an_open_position_is_skipped_not_re_entered():
 
 
 async def test_one_open_idea_limit_holds_across_several_trending_symbols():
-    candles = trending_candles()
+    candles = make_trending_candles()
     provider = SyntheticProvider({"AAA": candles, "BBB": candles, "CCC": candles})
     result, _ = await run(provider, ("AAA", "BBB", "CCC"), end=candles[-1].timestamp)
     open_position_count = 0
@@ -135,7 +135,7 @@ async def test_one_open_idea_limit_holds_across_several_trending_symbols():
 
 
 async def test_more_open_ideas_are_taken_when_the_limit_allows_and_risk_is_rechecked():
-    candles = trending_candles()
+    candles = make_trending_candles()
     provider = SyntheticProvider({"AAA": candles, "BBB": candles})
     result, venue = await run(
         provider,
@@ -149,7 +149,7 @@ async def test_more_open_ideas_are_taken_when_the_limit_allows_and_risk_is_reche
 
 
 async def test_symbol_without_data_is_reported_and_the_rest_still_run():
-    provider = SyntheticProvider({"AAA": trending_candles()})
+    provider = SyntheticProvider({"AAA": make_trending_candles()})
     result, _ = await run(provider, ("AAA", "MISSING"), end=LAST_BAR + timedelta(days=60))
     data_errors = events_of(result, "DATA_ERROR")
     assert [event.symbol for event in data_errors] == ["MISSING"]
