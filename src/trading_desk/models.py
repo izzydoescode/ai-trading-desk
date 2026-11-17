@@ -445,3 +445,20 @@ class VenueEvent(Model):
     price: float | None = None
     units: float | None = None
     profit_and_loss: float | None = None
+
+
+class DeskEvent(Model):
+    """One line of the desk's journal: who did what, to which symbol, and why.
+
+    Skips and rejections are recorded too, so the journal shows where candidates
+    are lost as well as which trades were taken.
+    """
+
+    run_id: str
+    sequence: int = Field(ge=0)
+    timestamp: AwareDatetime
+    symbol: str
+    agent: str
+    kind: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    detail: dict[str, str | float | int | bool | None] = Field(default_factory=dict)
