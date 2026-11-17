@@ -12,7 +12,7 @@ between modes. Every decision, skip, fill and exit is emitted as a `DeskEvent`
 with its reason.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
@@ -44,6 +44,21 @@ class EquityPoint(Model):
     timestamp: datetime
     equity: float
     has_open_position: bool
+
+
+@dataclass
+class BarUpdate:
+    """Everything that happened on one bar, handed to the per-bar hook."""
+
+    bar_index: int
+    bar_count: int
+    bar_time: datetime
+    equity_point: EquityPoint
+    candles_by_symbol: dict[str, Candle]
+    desk_reports: list[DeskReport]
+
+
+BarListener = Callable[[BarUpdate], Awaitable[None]]
 
 
 @dataclass
@@ -123,9 +138,14 @@ async def run_engine(
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     journal: Journal | None = None,
     on_event: EventListener | None = None,
+    on_bar: BarListener | None = None,
     liquidate_at_end: bool = True,
 ) -> EngineResult:
-    """Drive the desk over every bar in `[start, end]` and return what happened."""
+    """Drive the desk over every bar in `[start, end]` and return what happened.
+
+    `on_bar` is awaited once per bar after the bar is fully processed. A replay
+    uses it to pace, pause and publish; it cannot change what the desk decided.
+    """
     if end < start:
         raise ValueError("the run ends before it starts")
     run_id = str(uuid4())
@@ -166,7 +186,28 @@ async def run_engine(
                 journal.record_trade(run_id, closed_trade)
         trades_already_recorded = len(venue.closed_trades)
 
-    for bar_time in timeline:
+    async def publish_bar(
+        bar_index: int,
+        bar_time: datetime,
+        symbols_with_a_bar: list[str],
+        desk_reports: list[DeskReport],
+    ) -> None:
+        if on_bar is None:
+            return
+        await on_bar(
+            BarUpdate(
+                bar_index=bar_index,
+                bar_count=len(timeline),
+                bar_time=bar_time,
+                equity_point=result.equity_curve[-1],
+                candles_by_symbol={
+                    symbol: bars_by_symbol[symbol][bar_time] for symbol in symbols_with_a_bar
+                },
+                desk_reports=desk_reports,
+            )
+        )
+
+    for bar_index, bar_time in enumerate(timeline):
         # 1. Settle this bar before thinking about anything new.
         symbols_with_a_bar = [
             symbol for symbol in bars_by_symbol if bar_time in bars_by_symbol[symbol]
@@ -181,7 +222,9 @@ async def run_engine(
             )
         )
         result.bars_processed += 1
+        acted_desk_reports: list[DeskReport] = []
         if venue.is_halted:
+            await publish_bar(bar_index, bar_time, symbols_with_a_bar, acted_desk_reports)
             continue
 
         # 2. Decide every symbol we are not already exposed to.
@@ -201,6 +244,7 @@ async def run_engine(
                 desk_report = await desk.decide(
                     desk_report.symbol, venue.account_snapshot(), bar_time
                 )
+            acted_desk_reports.append(desk_report)
             recorder.emit(
                 bar_time,
                 desk_report.symbol,
@@ -215,6 +259,7 @@ async def run_engine(
                 submit_event = venue.submit(desk_report.decision.plan, bar_time)
                 recorder.emit_venue_event(submit_event)
                 has_submitted_this_bar = submit_event.kind is VenueEventKind.SUBMIT
+        await publish_bar(bar_index, bar_time, symbols_with_a_bar, acted_desk_reports)
 
     if timeline and liquidate_at_end:
         for venue_event in venue.liquidate(timeline[-1], ExitReason.END_OF_RUN):
