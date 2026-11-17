@@ -194,3 +194,49 @@ async def test_empty_window_and_reversed_window():
     assert result.final_equity == STARTING_CASH
     with pytest.raises(ValueError):
         await run(start=LAST_BAR, end=FIRST_BAR)
+
+
+async def test_bar_hook_sees_every_bar_in_order_with_that_bars_reports():
+    bar_updates = []
+
+    async def remember(bar_update):
+        bar_updates.append(bar_update)
+
+    result, _ = await run(on_bar=remember)
+    assert len(bar_updates) == result.bars_processed
+    assert [bar_update.bar_index for bar_update in bar_updates] == list(range(len(bar_updates)))
+    assert {bar_update.bar_count for bar_update in bar_updates} == {result.bars_processed}
+    assert [bar_update.equity_point for bar_update in bar_updates[:-1]] == result.equity_curve[:-1]
+    assert all("AAPL" in bar_update.candles_by_symbol for bar_update in bar_updates)
+    decided_symbols = [
+        report.symbol for bar_update in bar_updates for report in bar_update.desk_reports
+    ]
+    assert len(decided_symbols) == len(
+        [event for event in result.events if event.agent == "PICARD"]
+    )
+    for bar_update in bar_updates:
+        assert all(
+            report.evaluated_as_of == bar_update.bar_time for report in bar_update.desk_reports
+        )
+
+
+async def test_bar_hook_still_fires_while_the_venue_is_halted():
+    venue = PaperVenue(STARTING_CASH, US_EQUITIES)
+    venue.halt(FIRST_BAR)
+    bar_updates = []
+
+    async def remember(bar_update):
+        bar_updates.append(bar_update)
+
+    result, _ = await run(venue=venue, on_bar=remember)
+    assert len(bar_updates) == result.bars_processed > 0
+    assert all(bar_update.desk_reports == [] for bar_update in bar_updates)
+
+
+async def test_bar_hook_does_not_change_the_outcome():
+    async def ignore(bar_update):
+        return None
+
+    (with_hook, _), (without_hook, _) = await run(on_bar=ignore), await run()
+    assert with_hook.final_equity == without_hook.final_equity
+    assert len(with_hook.events) == len(without_hook.events)
