@@ -4,6 +4,7 @@ import {
   performance,
   pipelineStages,
   priceLevels,
+  tapeQuotes,
   watchlistRows,
 } from "./derive";
 import { cloneSnapshot, reportWith, tradeReport } from "./test/fixtures";
@@ -291,5 +292,109 @@ describe("price levels", () => {
     ]);
     desk.account = account({ positions: [{ ...position, symbol: "AAPL" }] });
     expect(priceLevels(desk, "AAPL").map((level) => level.price)).toEqual([460, 400, 380]);
+  });
+});
+
+describe("floor speech", () => {
+  const speechOf = (desk: Parameters<typeof agentCards>[0]) =>
+    Object.fromEntries(agentCards(desk, "AAPL").map((card) => [card.name, card.speech]));
+
+  it("has a stock line for offline, idle and halted desks", () => {
+    expect(agentCards(null, null)[0]!.speech).toBe("…");
+    expect(agentCards(cloneSnapshot({ reports_by_symbol: {} }), "AAPL")[0]!.speech).toBe("Ready.");
+    expect(agentCards(cloneSnapshot({ kill_switch_engaged: true }), "AAPL")[5]!.speech).toBe(
+      "Standing down.",
+    );
+    expect(
+      agentCards(cloneSnapshot({ kill_switch_engaged: true, reports_by_symbol: {} }), "AAPL")[0]!
+        .speech,
+    ).toBe("Standing down.");
+  });
+
+  it("speaks for an approved trade", () => {
+    const desk = cloneSnapshot();
+    desk.reports_by_symbol = { AAPL: tradeReport() };
+    expect(speechOf(desk)).toEqual({
+      HAWKEYE: "AAPL leads the list. Passing it down.",
+      NEO: "Invalid below 112.35.",
+      SNOWDEN: "No dated news supplied. I will not guess.",
+      FAMA: "No read on the crowd.",
+      ODIN: "Within limits. Approved at 171 shares.",
+      PICARD: "Make it so. Paper order queued.",
+    });
+  });
+
+  it("speaks for a veto, a revision, a wait, news and mood", () => {
+    const desk = cloneSnapshot();
+    desk.reports_by_symbol = {
+      AAPL: reportWith((report) => {
+        report.chart.stop = null;
+        report.news = {
+          ...report.news,
+          abstain: false,
+          verified_facts: [
+            { published_at: "2025-03-12T12:00:00Z", source: "Wire", headline: "A", url: null, is_commentary: false },
+          ],
+        };
+        report.sentiment = { ...report.sentiment, abstain: false, mood_score: 91, hype_risk: "HIGH" };
+        report.risk = { ...report.risk, verdict: "REJECT", failed_checks: ["Open ideas"], plan: null };
+        report.decision = { ...report.decision, action: "REJECT", plan: null };
+      }),
+    };
+    expect(speechOf(desk)).toMatchObject({
+      NEO: "No setup I would trade.",
+      SNOWDEN: "1 dated item checked.",
+      FAMA: "Mood 91 of 100. Hype risk high.",
+      ODIN: "Vetoed: Open ideas.",
+      PICARD: "No trade. The veto stands.",
+    });
+
+    desk.reports_by_symbol = {
+      AAPL: reportWith((report) => {
+        report.news = { ...report.news, abstain: false, red_flags: ["Unverified claim"] };
+        report.risk = { ...report.risk, verdict: "REVISE", failed_checks: [], plan: null };
+        report.decision = { ...report.decision, action: "WAIT", plan: null };
+      }),
+    };
+    expect(speechOf(desk)).toMatchObject({
+      SNOWDEN: "Red flag in the news. Read it first.",
+      ODIN: "Reward is too thin. Revise it.",
+      PICARD: "We wait for confirmation.",
+    });
+
+    desk.reports_by_symbol = {
+      AAPL: reportWith((report) => {
+        report.news = { ...report.news, abstain: false, verified_facts: [] };
+        report.risk = { ...report.risk, verdict: "REJECT", failed_checks: [], plan: null };
+        report.decision = { ...report.decision, action: "REJECT", plan: null };
+      }),
+    };
+    expect(speechOf(desk)).toMatchObject({
+      SNOWDEN: "0 dated items checked.",
+      ODIN: "Vetoed: risk limits.",
+    });
+  });
+});
+
+describe("tape", () => {
+  it("is empty without a desk or bars", () => {
+    expect(tapeQuotes(null)).toEqual([]);
+    expect(tapeQuotes(cloneSnapshot({ candles_by_symbol: {} }))).toEqual([]);
+  });
+
+  it("quotes each symbol's last close and change from the previous bar", () => {
+    const desk = cloneSnapshot();
+    const candle = desk.candles_by_symbol.AAPL![0]!;
+    desk.settings!.symbols = ["MSFT", "AAPL", "NVDA"];
+    desk.candles_by_symbol = {
+      AAPL: [{ ...candle, close: 100 }, { ...candle, close: 102 }],
+      MSFT: [{ ...candle, close: 400 }],
+    };
+    expect(tapeQuotes(desk)).toEqual([
+      { symbol: "MSFT", last: 400, change: null },
+      { symbol: "AAPL", last: 102, change: expect.closeTo(0.02) },
+    ]);
+    desk.settings = null;
+    expect(tapeQuotes(desk).map((quote) => quote.symbol)).toEqual(["AAPL", "MSFT"]);
   });
 });

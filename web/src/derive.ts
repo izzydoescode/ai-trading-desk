@@ -26,6 +26,8 @@ export interface AgentCard {
   line: string;
   metricLabel: string;
   metricValue: string;
+  /** What the agent "says" on the floor: a short version of its latest line. */
+  speech: string;
 }
 
 const TREND_WORDS: Record<Classification, string> = {
@@ -82,6 +84,7 @@ function idleCards(status: string, line: string): AgentCard[] {
     line,
     metricLabel: "LAST",
     metricValue: MISSING,
+    speech: { OFFLINE: "…", HALTED: "Standing down.", IDLE: "Ready." }[status] ?? "…",
   }));
 }
 
@@ -102,7 +105,31 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
   const verifiedCount = report.news.verified_facts.length;
   const itemCount = verifiedCount + report.news.commentary.length;
 
-  const cards: Omit<AgentCard, "key" | "label" | "role">[] = [
+  const levelsSet = report.chart.stop !== null;
+  const speeches: Record<AgentName, string> = {
+    HAWKEYE: topPick ? `${topPick.symbol} leads the list. Passing it down.` : "Nothing worth a look.",
+    NEO: levelsSet ? `Invalid below ${price(report.chart.stop)}.` : "No setup I would trade.",
+    SNOWDEN: report.news.abstain
+      ? "No dated news supplied. I will not guess."
+      : report.news.red_flags.length
+        ? "Red flag in the news. Read it first."
+        : `${verifiedCount} dated item${verifiedCount === 1 ? "" : "s"} checked.`,
+    FAMA: report.sentiment.abstain
+      ? "No read on the crowd."
+      : `Mood ${report.sentiment.mood_score} of 100. Hype risk ${report.sentiment.hype_risk.toLowerCase()}.`,
+    ODIN: {
+      APPROVE: plan ? `Within limits. Approved at ${plan.units} shares.` : "Within limits.",
+      REVISE: "Reward is too thin. Revise it.",
+      REJECT: `Vetoed: ${report.risk.failed_checks[0] ?? "risk limits"}.`,
+    }[report.risk.verdict],
+    PICARD: {
+      TRADE: "Make it so. Paper order queued.",
+      WAIT: "We wait for confirmation.",
+      REJECT: "No trade. The veto stands.",
+    }[report.decision.action],
+  };
+
+  const cards: Omit<AgentCard, "key" | "label" | "role" | "speech">[] = [
     {
       name: "HAWKEYE",
       status: "DONE",
@@ -159,8 +186,8 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
   return cards.map((card) => {
     const agent = AGENTS.find((candidate) => candidate.name === card.name)!;
     return desk.kill_switch_engaged
-      ? { ...agent, ...card, status: "HALTED", tone: "down" as const }
-      : { ...agent, ...card };
+      ? { ...agent, ...card, status: "HALTED", tone: "down" as const, speech: "Standing down." }
+      : { ...agent, ...card, speech: speeches[card.name] };
   });
 }
 
@@ -266,4 +293,30 @@ export function priceLevels(desk: Snapshot | null, symbol: string | null): Price
     { label: "ENTRY", price: levels.entry, tone: "amber" },
     { label: "STOP", price: levels.stop, tone: "down" },
   ];
+}
+
+export interface TapeQuote {
+  symbol: string;
+  last: number;
+  /** Change from the previous bar's close, as a fraction; null on the first bar. */
+  change: number | null;
+}
+
+/** One quote per symbol with bars, in the configured order. */
+export function tapeQuotes(desk: Snapshot | null): TapeQuote[] {
+  if (desk === null) return [];
+  const order = desk.settings?.symbols ?? Object.keys(desk.candles_by_symbol);
+  return order.flatMap((symbol) => {
+    const candles = desk.candles_by_symbol[symbol] ?? [];
+    const latest = candles.at(-1);
+    if (latest === undefined) return [];
+    const previous = candles.at(-2);
+    return [
+      {
+        symbol,
+        last: latest.close,
+        change: previous ? latest.close / previous.close - 1 : null,
+      },
+    ];
+  });
 }

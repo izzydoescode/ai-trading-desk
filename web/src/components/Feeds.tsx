@@ -112,20 +112,44 @@ export function NewsMood({ report }: { report: DeskReport | undefined }) {
   );
 }
 
+interface JournalLine {
+  event: DeskEvent;
+  /** How many consecutive bars repeated this same line. */
+  repeatCount: number;
+}
+
+/** Latest first, with runs of the same line (a position held for weeks) folded into one. */
+export function journalLines(events: DeskEvent[], rowLimit = JOURNAL_ROWS): JournalLine[] {
+  const lines: JournalLine[] = [];
+  for (let index = events.length - 1; index >= 0 && lines.length <= rowLimit; index -= 1) {
+    const event = events[index]!;
+    const previous = lines.at(-1);
+    const repeats =
+      previous !== undefined &&
+      previous.event.agent === event.agent &&
+      previous.event.kind === event.kind &&
+      previous.event.symbol === event.symbol &&
+      previous.event.reason === event.reason;
+    if (repeats) previous.repeatCount += 1;
+    else lines.push({ event, repeatCount: 1 });
+  }
+  return lines.slice(0, rowLimit);
+}
+
 export function Journal({ events }: { events: DeskEvent[] }) {
-  const latestFirst = events.slice(-JOURNAL_ROWS).reverse();
+  const lines = journalLines(events);
   return (
     <section className="panel journal" aria-label="Journal">
       <div className="panel-head">
         <span className="heading">JOURNAL</span>
         <span className="label">every signal, skip, veto and fill, with its reason</span>
       </div>
-      {latestFirst.length === 0 ? (
+      {lines.length === 0 ? (
         <p className="empty">Nothing recorded yet.</p>
       ) : (
         <table>
           <tbody>
-            {latestFirst.map((event, index) => (
+            {lines.map(({ event, repeatCount }, index) => (
               <tr key={`${event.sequence ?? "control"}-${event.timestamp}-${event.kind}-${index}`}>
                 <td className="label">{shortDate(event.timestamp)}</td>
                 <td
@@ -135,7 +159,10 @@ export function Journal({ events }: { events: DeskEvent[] }) {
                 </td>
                 <td className="strong">{event.kind}</td>
                 <td className="amber">{event.symbol}</td>
-                <td className="label reason">{plainReason(event.reason)}</td>
+                <td className="label reason">
+                  {plainReason(event.reason)}
+                  {repeatCount > 1 && <span className="repeat"> · {repeatCount} bars</span>}
+                </td>
               </tr>
             ))}
           </tbody>

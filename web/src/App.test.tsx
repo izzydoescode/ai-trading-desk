@@ -56,7 +56,9 @@ describe("terminal page", () => {
   it("shows an offline desk until the server answers", () => {
     render(<App />);
     expect(screen.getByRole("status")).toHaveTextContent("CONNECTING");
-    expect(screen.getAllByText("OFFLINE")).toHaveLength(6);
+    const agents = screen.getByRole("region", { name: "Agents" });
+    expect(within(agents).getAllByText("OFFLINE")).toHaveLength(6);
+    expect(within(screen.getByRole("region", { name: "Trading floor" })).getAllByText("OFFLINE")).toHaveLength(6);
     expect(screen.getByText("No decision yet.")).toBeInTheDocument();
     expect(screen.getByText("No risk review yet.")).toBeInTheDocument();
     expect(screen.getByText("Nothing recorded yet.")).toBeInTheDocument();
@@ -148,7 +150,8 @@ describe("terminal page", () => {
 
     send(statusMessage({ kill_switch_engaged: true }));
     expect(screen.getByRole("alert")).toHaveTextContent("KILL SWITCH ENGAGED");
-    expect(screen.getAllByText("HALTED")).toHaveLength(6);
+    expect(within(screen.getByRole("region", { name: "Agents" })).getAllByText("HALTED")).toHaveLength(6);
+    expect(within(screen.getByRole("region", { name: "Trading floor" })).getAllByText("Standing down.")).toHaveLength(6);
     const release = screen.getByRole("button", { name: /RELEASE KILL SWITCH/ });
     expect(release).toHaveAttribute("aria-pressed", "true");
     await user.click(release);
