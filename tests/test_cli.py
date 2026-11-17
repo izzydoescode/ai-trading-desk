@@ -978,3 +978,20 @@ def test_alpaca_news_is_backed_up_by_finnhub_when_both_are_configured(monkeypatc
         cli.build_data_provider(parse_resolved(monkeypatch, "desk", "decide", "AAPL"), client).name
         == "alpaca-daily-iex"
     )
+
+
+def test_shorts_need_a_bearish_market_by_default_and_the_rule_can_be_changed(monkeypatch):
+    """Verifies: the command line applies the market-trend rule to shorts by default, and
+    --market-trend both|off selects the stricter rule or none.
+    """
+    from trading_desk import cli
+
+    default_rules = cli.build_setup_rules(parse_resolved(monkeypatch, "desk", "decide", "AAPL"))
+    assert default_rules.market_trend_rule.value == "shorts"
+    assert [side.value for side in default_rules.allowed_sides] == ["LONG"]
+    for choice in ("both", "off"):
+        chosen_rules = cli.build_setup_rules(
+            parse_resolved(monkeypatch, "desk", "scan", "--market-trend", choice, "--sides", "both")
+        )
+        assert chosen_rules.market_trend_rule.value == choice
+        assert len(chosen_rules.allowed_sides) == 2
