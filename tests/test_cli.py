@@ -256,3 +256,62 @@ def test_desk_reports_unwritable_output(monkeypatch, tmp_path, capsys):
     )
     assert exit_code == 2
     assert "Could not write report output" in capsys.readouterr().err
+
+
+BACKTEST_ARGUMENTS = (
+    "desk",
+    "backtest",
+    "AAPL",
+    "--start",
+    "2025-01-02T00:00:00Z",
+    "--end",
+    "2025-04-24T00:00:00Z",
+)
+
+
+def test_desk_backtest_reports_in_sample_metrics(monkeypatch, tmp_path, capsys):
+    exit_code = run_cli_in_process(
+        monkeypatch, *BACKTEST_ARGUMENTS, "--holdout-ledger", str(tmp_path / "ledger.jsonl")
+    )
+    captured = capsys.readouterr()
+    backtest_report = json.loads(captured.out)
+    assert exit_code == 0
+    assert backtest_report["in_sample"]["bars"] == 80
+    assert backtest_report["out_of_sample"] is None
+    assert "In-sample: return" in captured.err
+    assert "vs SPY n/a" in captured.err
+    assert not (tmp_path / "ledger.jsonl").exists()
+
+
+def test_desk_backtest_guards_the_out_of_sample_window(monkeypatch, tmp_path, capsys):
+    holdout_arguments = (
+        *BACKTEST_ARGUMENTS,
+        "--split",
+        "2025-04-01T00:00:00Z",
+        "--evaluate-out-of-sample",
+        "--holdout-ledger",
+        str(tmp_path / "ledger.jsonl"),
+        "--output",
+        str(tmp_path / "backtest.json"),
+    )
+    assert run_cli_in_process(monkeypatch, *holdout_arguments) == 0
+    first_run = capsys.readouterr()
+    assert "Out-of-sample: return" in first_run.err
+    assert json.loads((tmp_path / "backtest.json").read_text())["out_of_sample"] is not None
+    assert run_cli_in_process(monkeypatch, *holdout_arguments) == 2
+    assert "Holdout refused" in capsys.readouterr().err
+    assert run_cli_in_process(monkeypatch, *holdout_arguments, "--allow-holdout-reuse") == 0
+    assert "contaminated" in capsys.readouterr().err
+
+
+def test_desk_backtest_rejects_a_bad_split(monkeypatch, tmp_path, capsys):
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        *BACKTEST_ARGUMENTS,
+        "--split",
+        "2030-01-01T00:00:00Z",
+        "--holdout-ledger",
+        str(tmp_path / "ledger.jsonl"),
+    )
+    assert exit_code == 2
+    assert "split" in capsys.readouterr().err
