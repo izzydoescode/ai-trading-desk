@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 
 import pytest
 
@@ -589,3 +590,78 @@ def test_desk_serve_serves_a_built_terminal_when_asked_or_found(
 def test_desk_serve_reports_an_unbuilt_ui_directory(monkeypatch, tmp_path, capsys):
     assert run_cli_in_process(monkeypatch, "desk", "serve", "--ui-dir", str(tmp_path)) == 2
     assert "index.html" in capsys.readouterr().err
+
+
+def test_news_finnhub_requires_its_key(monkeypatch, capsys, fake_uvicorn_server):
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    for command in (["decide", "AAPL"], ["scan", "AAPL"], ["serve"]):
+        exit_code = run_cli_in_process(
+            monkeypatch,
+            "desk",
+            *command,
+            "--as-of",
+            HISTORICAL_EVALUATION_TIME,
+            "--news",
+            "finnhub",
+        )
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "FINNHUB_API_KEY" in captured.err
+        assert captured.out == ""
+    assert fake_uvicorn_server.started_configs == []
+
+
+def test_desk_decide_reads_dated_news_from_finnhub(monkeypatch, tmp_path, capsys):
+    import httpx
+
+    news_requests = []
+
+    def handler(request):
+        news_requests.append(request)
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "datetime": int(datetime(2025, 4, 22, 14, tzinfo=UTC).timestamp()),
+                    "headline": "Supplier confirms shipment schedule",
+                    "source": "Reuters",
+                    "url": "https://finnhub.io/api/news?id=1",
+                },
+                {
+                    "datetime": int(datetime(2025, 4, 23, 23, tzinfo=UTC).timestamp()),
+                    "headline": "Published after the evaluation time",
+                    "source": "Reuters",
+                    "url": "https://finnhub.io/api/news?id=2",
+                },
+            ],
+        )
+
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "trading_desk.cli.httpx.AsyncClient",
+        lambda: real_async_client(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr("trading_desk.tools.news.FINNHUB_MINIMUM_REQUEST_INTERVAL_SECONDS", 0)
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--news",
+        "finnhub",
+        "--news-cache-dir",
+        str(tmp_path),
+    )
+    captured = capsys.readouterr()
+    desk_report = json.loads(captured.out)
+    assert exit_code == 0
+    assert [item["headline"] for item in desk_report["news"]["verified_facts"]] == [
+        "Supplier confirms shipment schedule"
+    ]
+    assert "Published after" not in captured.out
+    assert news_requests and all("test-finnhub-key" not in str(r.url) for r in news_requests)
+    assert "test-finnhub-key" not in captured.out + captured.err
+    assert (tmp_path / "finnhub" / "AAPL").is_dir()

@@ -43,12 +43,15 @@ from trading_desk.tools.market_data import (
     FixtureProvider,
     MarketDataProvider,
 )
+from trading_desk.tools.news import FinnhubNewsFeed, NewsFeed
 
 DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
 DEFAULT_PAPER_EQUITY = 100_000.0
 DEFAULT_CACHE_DIRECTORY = Path("data/market_cache")
 DEFAULT_HOLDOUT_LEDGER = Path("research/holdout_log.jsonl")
 DEFAULT_MODEL_CACHE_DIRECTORY = Path("data/model_cache")
+DEFAULT_NEWS_CACHE_DIRECTORY = Path("data/news_cache")
+NEWS_SOURCES = ["none", "finnhub"]
 DEFAULT_MAXIMUM_MODEL_COST_USD = 0.50
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
@@ -111,6 +114,16 @@ def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
             raise ValueError("Pass --csv-dir with a folder of <SYMBOL>.csv files for csv data")
         return CsvDirectoryProvider(args.csv_dir)
     return FixtureProvider(args.scenario)
+
+
+def build_news_feed(args, client: httpx.AsyncClient) -> NewsFeed | None:
+    """Create the news feed SNOWDEN reads, or None so it abstains for lack of a source."""
+    if args.news == "none":
+        return None
+    key = os.environ.get("FINNHUB_API_KEY")
+    if not key:
+        raise ValueError("Set FINNHUB_API_KEY in .env or the shell for --news finnhub")
+    return FinnhubNewsFeed(key, client, args.news_cache_dir)
 
 
 def anthropic_credentials_available() -> bool:
@@ -181,14 +194,17 @@ async def execute_desk(args) -> list[DeskReport]:
     async with httpx.AsyncClient() as client:
         provider = build_data_provider(args, client)
         llm = build_reasoning_provider(args, client, usage_meter)
+        news_feed = build_news_feed(args, client)
         if args.desk_command == "decide":
             desk_reports = [
-                await run_desk_decision(args.symbol, provider, account, evaluation_time, llm=llm)
+                await run_desk_decision(
+                    args.symbol, provider, account, evaluation_time, llm=llm, news_feed=news_feed
+                )
             ]
         else:
             symbols = args.symbols or list(US_EQUITIES.default_watchlist)
             desk_reports = await scan_watchlist(
-                symbols, provider, account, evaluation_time, llm=llm
+                symbols, provider, account, evaluation_time, llm=llm, news_feed=news_feed
             )
     if llm is not None:
         print(
@@ -250,7 +266,11 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
         args.journal.parent.mkdir(parents=True, exist_ok=True)
         journal = Journal(args.journal)
     async with httpx.AsyncClient() as client:
-        desk_session = DeskSession(build_data_provider(args, client), journal=journal)
+        desk_session = DeskSession(
+            build_data_provider(args, client),
+            journal=journal,
+            news_feed=build_news_feed(args, client),
+        )
         server = uvicorn.Server(
             uvicorn.Config(
                 create_app(desk_session, replay_settings, resolve_ui_directory(args)),
@@ -390,6 +410,16 @@ def build_parser() -> argparse.ArgumentParser:
         )
         model_command.add_argument(
             "--model-cache-dir", type=Path, default=DEFAULT_MODEL_CACHE_DIRECTORY
+        )
+    for news_command in (decide, scan, serve):
+        news_command.add_argument(
+            "--news",
+            choices=NEWS_SOURCES,
+            default="none",
+            help="News feed for SNOWDEN (default: none, SNOWDEN abstains)",
+        )
+        news_command.add_argument(
+            "--news-cache-dir", type=Path, default=DEFAULT_NEWS_CACHE_DIRECTORY
         )
     for desk_command in (decide, scan, backtest, serve):
         add_data_arguments(desk_command)

@@ -276,3 +276,26 @@ def test_replay_settings_reject_a_backwards_window_and_unknown_fields():
         replay_settings(symbols=[])
     with pytest.raises(ValidationError):
         replay_settings(leverage=3)
+
+
+async def test_session_passes_its_news_feed_to_the_desk_and_names_it():
+    class OneItemFeed:
+        name = "one-item-feed"
+
+        async def fetch(self, symbol, start, end):
+            from trading_desk.models import NewsItem
+
+            return [NewsItem(published_at=end, source="Reuters", headline="Dated item")]
+
+    async def sleeper(seconds):
+        await asyncio.sleep(0)
+
+    desk_session = DeskSession(FixtureProvider(), news_feed=OneItemFeed(), sleep=sleeper)
+    assert desk_session.snapshot()["news_source"] == "one-item-feed"
+    await desk_session.start(replay_settings())
+    await desk_session.wait_until_finished()
+    news_report = desk_session.reports_by_symbol["AAPL"]["news"]
+    assert news_report["abstain"] is False
+    assert news_report["verified_facts"][0]["headline"] == "Dated item"
+    plain_session, _ = session_that()
+    assert plain_session.snapshot()["news_source"] is None
