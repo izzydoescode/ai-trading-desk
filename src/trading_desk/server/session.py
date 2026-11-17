@@ -172,11 +172,13 @@ class DeskSession:
             "limits": self.limits.model_dump(mode="json"),
             "setup_rules": self.setup_rules.model_dump(mode="json"),
             "account": self._account_fields(),
-            "equity_curve": self.equity_curve,
+            # Copies, not the live containers: a queued snapshot must not grow
+            # while it waits to be sent, or readers would count bars twice.
+            "equity_curve": list(self.equity_curve),
             "candles_by_symbol": {
                 symbol: list(candles) for symbol, candles in self.candles_by_symbol.items()
             },
-            "reports_by_symbol": self.reports_by_symbol,
+            "reports_by_symbol": dict(self.reports_by_symbol),
             "recent_events": list(self.recent_events),
         }
 

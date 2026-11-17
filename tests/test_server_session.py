@@ -118,6 +118,19 @@ async def test_subscriber_gets_a_snapshot_then_bars_events_and_a_final_status():
     assert subscriber_queue not in desk_session._subscribers
 
 
+async def test_a_queued_snapshot_does_not_grow_while_the_run_continues():
+    desk_session, _ = session_that()
+    subscriber_queue = desk_session.subscribe()
+    await desk_session.start(replay_settings())
+    await desk_session.wait_until_finished()
+    opening_snapshot = drain(subscriber_queue)[0]
+    assert opening_snapshot["type"] == "snapshot"
+    assert opening_snapshot["equity_curve"] == []
+    assert opening_snapshot["reports_by_symbol"] == {}
+    assert opening_snapshot["candles_by_symbol"] == {}
+    assert opening_snapshot["recent_events"] == []
+
+
 async def test_pause_holds_the_bar_and_resume_finishes_the_run():
     def pause_on_bar_ten(desk_session, bar_number):
         if bar_number == 10:
