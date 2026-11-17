@@ -921,9 +921,11 @@ def parse_resolved(monkeypatch, *arguments):
 
 
 def test_without_alpaca_keys_the_desk_defaults_to_the_fixture_with_no_news(monkeypatch):
-    """Verifies: out of the box, with no keys, the desk runs offline on the bundled fixture."""
+    """Verifies: out of the box, with no keys, the desk runs offline on the bundled fixture
+    and long-only.
+    """
     args = parse_resolved(monkeypatch, "desk", "decide", "AAPL")
-    assert (args.source, args.news) == ("fixture", "none")
+    assert (args.source, args.news, args.sides) == ("fixture", "none", "long")
 
 
 def test_with_alpaca_keys_the_desk_defaults_to_alpaca_data_and_news(monkeypatch):

@@ -634,9 +634,9 @@ def build_parser() -> argparse.ArgumentParser:
         desk_command.add_argument(
             "--sides",
             choices=sorted(SIDE_CHOICES),
-            default="both",
-            help="Sides NEO may trade: both (longs in uptrends, shorts in downtrends), "
-            "long only, or short only",
+            default="long",
+            help="Sides NEO may trade: long only (default), short only, or both (longs in "
+            "uptrends, shorts in downtrends)",
         )
     return parser
 
