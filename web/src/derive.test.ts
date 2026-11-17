@@ -13,6 +13,7 @@ import type { Account, ClosedTrade, Position } from "./types";
 
 const position: Position = {
   symbol: "MSFT",
+  side: "LONG",
   units: 10,
   entry_price: 400,
   stop: 380,
@@ -23,6 +24,7 @@ const position: Position = {
 
 const trade = (profitAndLoss: number, rMultiple: number): ClosedTrade => ({
   symbol: "AAPL",
+  side: "LONG",
   strategy: "TREND_CONTINUATION",
   units: 10,
   entry_price: 100,
@@ -462,5 +464,33 @@ describe("scout signal tags", () => {
       }),
     });
     expect(rows[0]!.signals.map((signal) => signal.label)).toEqual(["52W HIGH ✓"]);
+  });
+});
+
+describe("short side in the view models", () => {
+  it("has NEO say which way a short is invalidated", () => {
+    const desk = cloneSnapshot();
+    desk.reports_by_symbol = {
+      AAPL: reportWith((report) => {
+        report.chart.setup = { ...report.chart.setup!, side: "SHORT", stop: 120, target: 100 };
+      }),
+    };
+    expect(agentCards(desk, "AAPL")[1]!.speech).toBe("Short. Invalid above 120.00.");
+  });
+
+  it("carries the scout's side onto the watchlist row", () => {
+    const rows = watchlistRows({
+      NVDA: reportWith((report) => {
+        report.symbol = "NVDA";
+        report.scout.side = "SHORT";
+      }),
+      AAPL: reportWith((report) => {
+        report.scout.side = undefined;
+      }),
+    });
+    expect(Object.fromEntries(rows.map((row) => [row.symbol, row.side]))).toEqual({
+      NVDA: "SHORT",
+      AAPL: null,
+    });
   });
 });

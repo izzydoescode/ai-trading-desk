@@ -8,6 +8,7 @@ import type {
   EquityPoint,
   ScoutSignal,
   Snapshot,
+  TradeSide,
 } from "./types";
 
 export type Tone = "up" | "down" | "caution" | "dim" | "amber" | "info";
@@ -76,6 +77,8 @@ export interface WatchlistRow {
   relativeVolume: number | null;
   volumeSurge: boolean;
   signals: SignalTag[];
+  /** Side the scout rates the symbol for; null when it has no trend. */
+  side: TradeSide | null;
   verdict: string;
   tone: Tone;
 }
@@ -116,6 +119,7 @@ export function watchlistRows(reportsBySymbol: Record<string, DeskReport>): Watc
       volumeSurge: report.scout.volume_surge ?? false,
       signals: (report.scout.signals ?? []).map(signalTag),
       verdict: report.scout.verdict === "NEED_MORE_DATA" ? "NEED DATA" : report.scout.verdict,
+      side: report.scout.side ?? null,
       tone: ({ WATCH: "up", SKIP: "dim", NEED_MORE_DATA: "caution" } as const)[
         report.scout.verdict
       ],
@@ -155,7 +159,9 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
   const setup = report.chart.setup;
   const speeches: Record<AgentName, string> = {
     HAWKEYE: topPick ? `${topPick.symbol} leads the list. Passing it down.` : "Nothing worth a look.",
-    NEO: setup ? `Invalid below ${price(setup.stop)}.` : "No setup I would trade.",
+    NEO: setup
+      ? `${setup.side === "SHORT" ? "Short. Invalid above" : "Invalid below"} ${price(setup.stop)}.`
+      : "No setup I would trade.",
     SNOWDEN: report.news.abstain
       ? "No dated news supplied. I will not guess."
       : report.news.red_flags.length

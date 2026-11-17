@@ -4,6 +4,8 @@ export type SessionStatus = "IDLE" | "RUNNING" | "PAUSED" | "FINISHED" | "FAILED
 export type DecisionAction = "TRADE" | "WAIT" | "REJECT";
 export type Classification = "BULLISH" | "BEARISH" | "NEUTRAL" | "INSUFFICIENT_DATA";
 export type RiskVerdict = "APPROVE" | "REVISE" | "REJECT";
+/** Which way a trade bets: LONG profits when price rises, SHORT when it falls. */
+export type TradeSide = "LONG" | "SHORT";
 export type ScoutVerdict = "WATCH" | "SKIP" | "NEED_MORE_DATA";
 
 export interface ScoutSignal {
@@ -35,9 +37,9 @@ export interface EquityPoint {
 
 export interface TradePlan {
   symbol: string;
-  side: string;
+  side: TradeSide;
   strategy: TradeSetup["strategy"];
-  target_follows_upper_band: boolean;
+  target_follows_band: boolean;
   /** Early-exit rule the trade is held under; null means it is held to its stop. */
   stalled_trade_sessions?: number | null;
   stalled_trade_progress_r?: number;
@@ -52,13 +54,14 @@ export interface TradePlan {
 
 export interface TradeSetup {
   strategy: "BREAKOUT" | "TREND_CONTINUATION" | "BOLLINGER_REVERSION";
+  side: TradeSide;
   entry_reference: number;
   stop: number;
   target: number;
   confirmation: string;
   invalidation: string;
   /** True when the exit is the next touch of the upper Bollinger band. */
-  target_follows_upper_band: boolean;
+  target_follows_band: boolean;
 }
 
 export interface RiskCheck {
@@ -103,6 +106,8 @@ export interface DeskReport {
     symbol: string;
     verdict: ScoutVerdict;
     score: number | null;
+    /** The side the score argues for; null when there is no trend to follow. */
+    side?: TradeSide | null;
     /** Latest session's volume is at least 50% above its 20-session average. */
     volume_surge?: boolean;
     signals?: ScoutSignal[];
@@ -161,6 +166,7 @@ export interface DeskReport {
 
 export interface Position {
   symbol: string;
+  side: TradeSide;
   units: number;
   entry_price: number;
   stop: number;
@@ -171,6 +177,7 @@ export interface Position {
 
 export interface ClosedTrade {
   symbol: string;
+  side: TradeSide;
   strategy: TradeSetup["strategy"];
   units: number;
   entry_price: number;

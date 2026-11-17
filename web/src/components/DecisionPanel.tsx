@@ -16,7 +16,7 @@ export function DecisionPanel({ report }: { report: DeskReport | undefined }) {
   const plan = decision.plan;
   const tiles: [string, string, string?][] = plan
     ? [
-        ["SIDE", plan.side, "up"],
+        ["SIDE", plan.side, plan.side === "SHORT" ? "down" : "up"],
         ["SIZE", `${units(plan.units)} SH`],
         ["ENTRY", price(plan.entry_reference), "amber"],
         ["NOTIONAL", money(plan.notional)],

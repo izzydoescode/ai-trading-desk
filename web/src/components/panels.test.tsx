@@ -64,6 +64,19 @@ describe("decision panel", () => {
   });
 });
 
+describe("decision side", () => {
+  it("shows a short in words and in the down colour", () => {
+    render(
+      <DecisionPanel
+        report={reportWith((report) => {
+          report.decision.plan = { ...report.decision.plan!, side: "SHORT", stop: 120, target: 104 };
+        })}
+      />,
+    );
+    expect(screen.getByText("SHORT")).toHaveClass("tone-down");
+  });
+});
+
 describe("risk panel", () => {
   it("marks the failed check and shows the requested revision", () => {
     render(
@@ -183,9 +196,9 @@ describe("watchlist and journal", () => {
     render(
       <Watchlist
         rows={[
-          { symbol: "TSLA", score: null, verdict: "NEED DATA", tone: "caution", relativeVolume: null, volumeSurge: false, signals: [] },
-          { symbol: "NVDA", score: 0.7, verdict: "WATCH", tone: "up", relativeVolume: 1.83, volumeSurge: true, signals: [{ label: "52W HIGH ✓", tone: "up", description: "52w high at 108.00, confirmed by volume" }] },
-          { symbol: "AAPL", score: 0.6, verdict: "WATCH", tone: "up", relativeVolume: 1.1, volumeSurge: false, signals: [{ label: "BREAKOUT · no vol", tone: "dim", description: "breakout at 109.00, not confirmed by volume" }] },
+          { symbol: "TSLA", score: null, verdict: "NEED DATA", tone: "caution", relativeVolume: null, volumeSurge: false, signals: [], side: null },
+          { symbol: "NVDA", score: 0.7, verdict: "WATCH", tone: "up", relativeVolume: 1.83, volumeSurge: true, signals: [{ label: "52W HIGH ✓", tone: "up", description: "52w high at 108.00, confirmed by volume" }], side: "SHORT" },
+          { symbol: "AAPL", score: 0.6, verdict: "WATCH", tone: "up", relativeVolume: 1.1, volumeSurge: false, signals: [{ label: "BREAKOUT · no vol", tone: "dim", description: "breakout at 109.00, not confirmed by volume" }], side: "LONG" },
         ]}
         focusedSymbol={null}
         onSelect={vi.fn()}
@@ -196,6 +209,8 @@ describe("watchlist and journal", () => {
     expect(screen.getByText("1.83x ▲ SURGE")).toHaveClass("amber");
     expect(screen.getByText("1.10x")).toHaveClass("label");
     expect(screen.getByText("52W HIGH ✓")).toHaveClass("tone-up");
+    expect(screen.getByText("WATCH SHORT")).toBeInTheDocument();
+    expect(screen.getByText("WATCH LONG")).toBeInTheDocument();
     expect(screen.getByText("BREAKOUT · no vol")).toHaveClass("tone-dim");
     expect(screen.getByText("BREAKOUT · no vol")).toHaveAttribute(
       "title",
@@ -331,11 +346,11 @@ describe("balance", () => {
       ...snapshot.account!,
       equity: 99_500,
       positions: [
-        { symbol: "AAPL", units: 171, entry_price: 115.89, stop: 112.35, target: 129.52, opened_at: "2025-03-14T21:00:00Z", planned_risk_amount: 754 },
+        { symbol: "AAPL", side: "LONG" as const, units: 171, entry_price: 115.89, stop: 112.35, target: 129.52, opened_at: "2025-03-14T21:00:00Z", planned_risk_amount: 754 },
       ],
     };
     render(<Balance account={account} equityCurve={[]} performance={performance(account, [])} />);
-    expect(screen.getByText("OPEN AAPL · 171 sh @ 115.89 · stop 112.35")).toBeInTheDocument();
+    expect(screen.getByText("OPEN LONG AAPL · 171 sh @ 115.89 · stop 112.35")).toBeInTheDocument();
     expect(screen.getByText(/▼ -\$500\.00 · -0\.50% since start/)).toHaveClass("tone-down");
     expect(screen.getByText("Equity curve appears once bars arrive.")).toBeInTheDocument();
   });
