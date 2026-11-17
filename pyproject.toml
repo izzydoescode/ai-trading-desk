@@ -9,7 +9,12 @@ dependencies = ["langgraph>=1.0,<2", "pydantic>=2.11,<3", "httpx>=0.28,<1"]
 trading-desk = "trading_desk.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+dev = [
+    "pytest>=8,<10",
+    "pytest-asyncio>=1,<2",
+    "pytest-cov>=6,<8",
+    "ruff>=0.12,<1",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -22,6 +27,15 @@ packages = ["src/trading_desk"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["trading_desk"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
 line-length = 100
