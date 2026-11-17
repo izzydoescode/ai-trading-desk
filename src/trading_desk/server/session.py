@@ -82,11 +82,13 @@ class DeskSession:
         journal: Journal | None = None,
         news_feed: NewsFeed | None = None,
         sentiment_feed: SentimentFeed | None = None,
+        news_tone_feed: SentimentFeed | None = None,
         sleep: Sleeper = asyncio.sleep,
     ):
         self.data_provider = data_provider
         self.news_feed = news_feed
         self.sentiment_feed = sentiment_feed
+        self.news_tone_feed = news_tone_feed
         self.market_profile, self.limits, self.setup_rules = market_profile, limits, setup_rules
         self.journal = journal
         self._sleep = sleep
@@ -274,6 +276,7 @@ class DeskSession:
                 on_bar=self._on_bar,
                 news_feed=self.news_feed,
                 sentiment_feed=self.sentiment_feed,
+                news_tone_feed=self.news_tone_feed,
             )
             self.status = SessionStatus.FINISHED
         except asyncio.CancelledError:

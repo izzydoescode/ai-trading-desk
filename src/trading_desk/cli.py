@@ -142,6 +142,20 @@ def build_sentiment_feed(
     return HeadlineToneFeed(news_feed, llm)
 
 
+def build_news_tone_feed(
+    args, news_feed: NewsFeed | None, llm: ReasoningProvider | None
+) -> SentimentFeed | None:
+    """Create the headline-tone reader that lets SNOWDEN call news bullish or bearish."""
+    if not args.news_tone:
+        return None
+    if news_feed is None or llm is None:
+        raise ValueError(
+            "--news-tone needs headlines and a model: add --news finnhub and "
+            "--provider anthropic or openai"
+        )
+    return HeadlineToneFeed(news_feed, llm)
+
+
 def anthropic_credentials_available() -> bool:
     """True when the Anthropic SDK can authenticate on this machine.
 
@@ -214,6 +228,7 @@ async def execute_desk(args) -> list[DeskReport]:
         feeds = {
             "news_feed": news_feed,
             "sentiment_feed": build_sentiment_feed(args, news_feed, llm),
+            "news_tone_feed": build_news_tone_feed(args, news_feed, llm),
         }
         if args.desk_command == "decide":
             desk_reports = [
@@ -294,6 +309,7 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
             journal=journal,
             news_feed=news_feed,
             sentiment_feed=build_sentiment_feed(args, news_feed, llm),
+            news_tone_feed=build_news_tone_feed(args, news_feed, llm),
         )
         server = uvicorn.Server(
             uvicorn.Config(
@@ -450,6 +466,11 @@ def build_parser() -> argparse.ArgumentParser:
         )
         news_command.add_argument(
             "--news-cache-dir", type=Path, default=DEFAULT_NEWS_CACHE_DIRECTORY
+        )
+        news_command.add_argument(
+            "--news-tone",
+            action="store_true",
+            help="Let SNOWDEN call the news bullish or bearish from model-labelled headlines",
         )
         news_command.add_argument(
             "--sentiment",

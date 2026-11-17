@@ -143,6 +143,7 @@ async def run_engine(
     on_bar: BarListener | None = None,
     news_feed: NewsFeed | None = None,
     sentiment_feed: SentimentFeed | None = None,
+    news_tone_feed: SentimentFeed | None = None,
     liquidate_at_end: bool = True,
 ) -> EngineResult:
     """Drive the desk over every bar in `[start, end]` and return what happened.
@@ -162,6 +163,7 @@ async def run_engine(
         setup_rules,
         news_feed=news_feed,
         sentiment_feed=sentiment_feed,
+        news_tone_feed=news_tone_feed,
     )
 
     bars_by_symbol: dict[str, dict[datetime, Candle]] = {}

@@ -779,3 +779,20 @@ def test_desk_decide_reads_headline_tone_with_claude_and_meters_it(monkeypatch, 
     ]
     assert "calls=2" in captured.err
     assert "cost=$0.0003" in captured.err
+
+
+def test_news_tone_needs_both_a_news_feed_and_a_model(monkeypatch, capsys):
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
+    for extra_arguments in (["--news-tone"], ["--news-tone", "--news", "finnhub"]):
+        exit_code = run_cli_in_process(
+            monkeypatch,
+            "desk",
+            "decide",
+            "AAPL",
+            "--as-of",
+            HISTORICAL_EVALUATION_TIME,
+            *extra_arguments,
+        )
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "--news-tone needs headlines and a model" in captured.err

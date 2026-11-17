@@ -321,3 +321,34 @@ async def test_session_passes_its_sentiment_feed_to_the_desk_and_names_it():
     await desk_session.start(replay_settings())
     await desk_session.wait_until_finished()
     assert desk_session.reports_by_symbol["AAPL"]["sentiment"]["mood_score"] == 60
+
+
+async def test_session_passes_its_news_tone_feed_to_snowden():
+    from trading_desk.agents.fama import SentimentReading
+    from trading_desk.models import NewsItem
+
+    class OneItemFeed:
+        name = "one-item-feed"
+
+        async def fetch(self, symbol, start, end, limit=12):
+            return [NewsItem(published_at=end, source="Reuters", headline="Dated item")]
+
+    class BearishTone:
+        name = "bearish-tone"
+
+        async def fetch(self, symbol, start, end):
+            return SentimentReading(
+                source="tone", bullish_post_count=1, bearish_post_count=9, item_label="headline"
+            )
+
+    async def sleeper(seconds):
+        await asyncio.sleep(0)
+
+    desk_session = DeskSession(
+        FixtureProvider(), news_feed=OneItemFeed(), news_tone_feed=BearishTone(), sleep=sleeper
+    )
+    await desk_session.start(replay_settings())
+    await desk_session.wait_until_finished()
+    assert desk_session.reports_by_symbol["AAPL"]["news"]["verdict"] == "BEARISH"
+    # Bearish news can only make the desk wait: no trade was ever taken.
+    assert desk_session.venue.closed_trades == []

@@ -405,3 +405,41 @@ async def test_a_reading_supplied_directly_wins_over_the_feed():
     )
     assert sentiment_feed.requests == []
     assert report.sentiment.mood_score == 50
+
+
+async def test_bearish_news_tone_makes_the_desk_wait_and_bullish_tone_changes_nothing():
+    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    bearish = await decide(
+        news_feed=news_feed, news_tone_feed=ScriptedSentimentFeed(bullish=1, bearish=9)
+    )
+    assert bearish.news.verdict is Classification.BEARISH
+    assert bearish.risk.verdict is RiskVerdict.APPROVE
+    assert bearish.decision.action is DecisionAction.WAIT
+    assert "SNOWDEN reports bearish news" in bearish.decision.summary
+
+    plain = await decide(news_feed=news_feed)
+    bullish = await decide(
+        news_feed=news_feed, news_tone_feed=ScriptedSentimentFeed(bullish=9, bearish=1)
+    )
+    assert bullish.news.verdict is Classification.BULLISH
+    assert bullish.decision.action is DecisionAction.TRADE
+    assert bullish.decision.plan == plain.decision.plan  # good news never enlarges a trade
+
+
+async def test_a_failed_tone_reading_falls_back_to_listing_the_items():
+    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    report = await decide(
+        news_feed=news_feed,
+        news_tone_feed=ScriptedSentimentFeed(error=RuntimeError("sk-SECRET-VALUE")),
+    )
+    assert report.news.verdict is Classification.NEUTRAL
+    assert not report.news.abstain
+    assert trace_entry(report, "snowden").error == "News tone failed: RuntimeError"
+    assert "SECRET-VALUE" not in report.model_dump_json()
+
+
+async def test_tone_is_not_requested_when_there_is_no_news_to_label():
+    tone_feed = ScriptedSentimentFeed(bullish=9, bearish=1)
+    report = await decide(news_feed=RecordingNewsFeed([]), news_tone_feed=tone_feed)
+    assert tone_feed.requests == []
+    assert report.news.abstain
