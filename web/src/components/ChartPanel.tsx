@@ -60,6 +60,17 @@ export function ChartPanel({
               TREND {report.chart.trend === "INSUFFICIENT_DATA" ? "UNKNOWN" : report.chart.trend}
             </span>
           )}
+          {report?.chart.market_trend && (
+            <span
+              className={`badge tone-${TREND_TONES[report.chart.market_trend]}`}
+              title="The benchmark's own trend. A short is taken only when it is bearish too."
+            >
+              MARKET{" "}
+              {report.chart.market_trend === "INSUFFICIENT_DATA"
+                ? "UNKNOWN"
+                : report.chart.market_trend}
+            </span>
+          )}
           {report?.chart.setup && (
             <span className="badge tone-up" title={report.chart.strategy_notes.join("\n")}>
               {STRATEGY_WORDS[report.chart.setup.strategy]} SETUP

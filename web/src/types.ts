@@ -118,6 +118,8 @@ export interface DeskReport {
     counter_case: Analysis;
     /** Overall trend: BULLISH allows longs only, BEARISH shorts only, otherwise nothing. */
     trend: Classification;
+    /** The benchmark's trend at the same moment, when the market-trend rule looked at it. */
+    market_trend?: Classification | null;
     support: number | null;
     resistance: number | null;
     /** One line per pattern NEO considered, with why it did or did not trigger. */
