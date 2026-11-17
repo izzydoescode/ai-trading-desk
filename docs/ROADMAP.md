@@ -12,14 +12,13 @@ The records now exist (see "Trade records" in `CLAUDE.md`): every closed trade w
 - **Weekly report.** A `desk report --week` command that writes one Markdown page from the same queries: trades taken, results by strategy, biggest win and loss, what was rejected and why, and the model spend for the week.
 - Cost: none beyond build time. Both read the local journal.
 
-### Short side
+### Decide when shorts are allowed
 
-The trend already decides the side: a bearish trend allows shorts only. Shorts are not built, so a bearish trend currently takes nothing.
+The short side is built (see "Both sides" in `CLAUDE.md`) and is on by default. In the first in-sample backtest it lost: short-only made 1 winner in 17 trades (-7.78%) over a window in which SPY rose 26.55%, and running both sides returned -0.52% against +6.59% long-only. Shorting individual downtrends inside a rising market did not work there.
 
-- NEO: mirror the three strategies (breakdown below a prior low on volume, downtrend continuation, upper-band touch as the entry with the lower band as the exit).
-- ODIN: risk and reward maths for a short, and a short-notional limit.
-- Paper venue: short positions, stop above entry, target below, mirrored gap rules and P&L.
-- Assumptions to confirm: shorts fully cash-collateralised under the same 20% position cap; borrow fees not modelled ($0).
+- Candidate rule to test in-sample: allow shorts only when the benchmark (SPY) is itself in a bearish trend, and longs only when it is bullish or neutral.
+- Until that is tested, `--sides long` runs the desk long-only.
+- Borrow fees and margin interest are not modelled; add them before trusting any short result.
 
 ### Live polling on Alpaca
 

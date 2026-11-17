@@ -48,7 +48,7 @@ def test_setup_rules_change_the_levels():
     "overrides",
     [
         {"close": 104.0},
-        {"close": 90.0, "sma20": 95.0},
+        {"close": 99.0},
         {"atr14": None},
         {"atr14": 0.0},
         {"atr14": 80.0},
@@ -59,7 +59,7 @@ def test_no_setup_without_a_trigger_and_a_usable_stop(overrides):
     chart_report = analyze_chart(make_indicators(**overrides), blockers=[])
     assert chart_report.setup is None
     # NEO still reports: what it is watching for, and the context levels.
-    assert "A bullish trend (SMA20 above SMA50, close above SMA50)" in chart_report.watch_for
+    assert "A clear trend with a trigger in its direction" in chart_report.watch_for
     assert chart_report.support == 99.0 and chart_report.resistance == 111.0
 
 
@@ -168,7 +168,7 @@ def test_touching_the_lower_band_in_an_uptrend_is_a_reversion_setup():
     assert chart.setup.stop == pytest.approx(100.5)  # half an ATR under the low that touched
     # The first target is the upper band as it stands today; it then follows the band.
     assert chart.setup.target == pytest.approx(110.0)
-    assert chart.setup.target_follows_upper_band is True
+    assert chart.setup.target_follows_band is True
     assert "Exit is the next touch of the upper band, now 110.0000" in chart.setup.confirmation
     assert "bounce failed" in chart.setup.invalidation
     assert "not above SMA20" in notes_for(chart, "TREND_CONTINUATION")
@@ -191,8 +191,8 @@ def test_only_the_bollinger_setup_has_a_target_that_follows_the_band():
     breakout = analyze_chart(
         make_indicators(prior_high20=108.0, relative_volume20=2.0), blockers=[]
     )
-    assert trend.setup.target_follows_upper_band is False
-    assert breakout.setup.target_follows_upper_band is False
+    assert trend.setup.target_follows_band is False
+    assert breakout.setup.target_follows_band is False
 
 
 @pytest.mark.parametrize(
@@ -215,26 +215,142 @@ def test_overall_trend_is_read_from_the_averages(overrides, expected_trend):
     assert overall_trend(make_indicators(**overrides)).value == expected_trend
 
 
+BEARISH = {"close": 90.0, "sma20": 95.0, "sma50": 100.0, "atr14": 2.0}
+
+
 def test_a_bearish_trend_takes_no_long_even_when_a_long_pattern_would_trigger():
-    """Verifies: in a bearish trend NEO refuses every long pattern, including a lower-band
-    touch and a volume breakout, and says that only shorts would apply.
+    """Verifies: in a bearish trend a lower-band touch and an upside volume breakout, both
+    long patterns, are never bought. The only setup NEO may produce there is a short.
     """
-    bearish = {"close": 90.0, "sma20": 95.0, "sma50": 100.0}
-    band_touch = analyze_chart(
+    lower_band_touch = analyze_chart(
         make_indicators(
-            **bearish, latest_low=88.0, bollinger_lower20=89.0, bollinger_upper20=101.0
+            **BEARISH, latest_low=88.0, bollinger_lower20=89.0, bollinger_upper20=101.0
         ),
         blockers=[],
     )
-    volume_breakout = analyze_chart(
-        make_indicators(**bearish, prior_high20=89.0, relative_volume20=3.0), blockers=[]
+    upside_breakout = analyze_chart(
+        make_indicators(**BEARISH, prior_high20=89.0, relative_volume20=3.0), blockers=[]
     )
-    for chart in (band_touch, volume_breakout):
+    for chart in (lower_band_touch, upside_breakout):
         assert chart.trend is Classification.BEARISH
-        assert chart.setup is None
-        assert len(chart.strategy_notes) == 1
-        assert "only short setups apply" in chart.strategy_notes[0]
-        assert "No long is taken against the trend" in chart.strategy_notes[0]
+        assert chart.setup is None or chart.setup.side.value == "SHORT"
+
+
+def test_with_the_short_side_switched_off_a_bearish_trend_takes_nothing():
+    """Verifies: running long-only, a bearish trend produces no setup and the note says the
+    short side is off, rather than taking a long against the trend.
+    """
+    chart = analyze_chart(
+        make_indicators(**BEARISH), blockers=[], setup_rules=SetupRules(allowed_sides=("LONG",))
+    )
+    assert chart.setup is None
+    assert len(chart.strategy_notes) == 1
+    assert "calls for short setups only" in chart.strategy_notes[0]
+    assert "short side is switched off" in chart.strategy_notes[0]
+    long_only_uptrend = analyze_chart(
+        make_indicators(), blockers=[], setup_rules=SetupRules(allowed_sides=("LONG",))
+    )
+    assert long_only_uptrend.setup.side.value == "LONG"
+    short_only_uptrend = analyze_chart(
+        make_indicators(), blockers=[], setup_rules=SetupRules(allowed_sides=("SHORT",))
+    )
+    assert short_only_uptrend.setup is None
+
+
+def test_downtrend_continuation_is_a_short_with_the_stop_above_and_the_target_below():
+    """Verifies: close below SMA20 below SMA50 produces a short: stop 2 ATR above the entry,
+    target three times that risk below it.
+    """
+    chart = analyze_chart(make_indicators(**BEARISH), blockers=[])
+    assert chart.setup.strategy.value == "TREND_CONTINUATION"
+    assert chart.setup.side.value == "SHORT"
+    assert chart.setup.entry_reference == 90.0
+    assert chart.setup.stop == pytest.approx(94.0)
+    assert chart.setup.target == pytest.approx(78.0)
+    assert chart.setup.target_follows_band is False
+    assert "Downtrend confirmed" in chart.setup.confirmation
+    assert "A close above 94.0000 (2 ATR over entry)" in chart.setup.invalidation
+
+
+def test_breakdown_below_a_prior_low_on_a_volume_surge_is_a_short_breakout():
+    """Verifies: in a bearish trend a close under the longest broken prior low, with a volume
+    surge, is the short BREAKOUT; without the surge it is refused like its long twin.
+    """
+    with_volume = analyze_chart(
+        make_indicators(**BEARISH, prior_low20=92.0, prior_low55=91.0, relative_volume20=1.8),
+        blockers=[],
+    )
+    assert with_volume.setup.strategy.value == "BREAKOUT"
+    assert with_volume.setup.side.value == "SHORT"
+    assert "Breakdown below the 55-session low 91.0000 on 1.80x volume" in (
+        with_volume.setup.confirmation
+    )
+    assert "breakdown failed" in with_volume.setup.invalidation
+    quiet = analyze_chart(
+        make_indicators(**BEARISH, prior_low20=92.0, relative_volume20=1.0), blockers=[]
+    )
+    assert quiet.setup.strategy.value == "TREND_CONTINUATION"  # the trend rule still applies
+    assert "not taken" in notes_for(quiet, "BREAKOUT")
+    not_broken = analyze_chart(
+        make_indicators(**BEARISH, prior_low20=89.0, relative_volume20=3.0), blockers=[]
+    )
+    assert "close is not below its prior 20-session low" in notes_for(not_broken, "BREAKOUT")
+
+
+RALLY_IN_A_DOWNTREND = {
+    "close": 97.0,
+    "sma20": 95.0,
+    "sma50": 100.0,
+    "latest_high": 98.6,
+    "bollinger_upper20": 98.0,
+    "bollinger_lower20": 90.0,
+    "atr14": 2.0,
+}
+
+
+def test_touching_the_upper_band_in_a_downtrend_is_the_short_reversion_entry():
+    """Verifies: in a bearish trend the upper band is the entry and the lower band the exit:
+    the mirror of the long rule, with the stop half an ATR above the high that touched.
+    """
+    chart = analyze_chart(make_indicators(**RALLY_IN_A_DOWNTREND), blockers=[])
+    assert chart.trend is Classification.BEARISH
+    assert chart.setup.strategy.value == "BOLLINGER_REVERSION"
+    assert chart.setup.side.value == "SHORT"
+    assert chart.setup.entry_reference == 97.0
+    assert chart.setup.stop == pytest.approx(99.6)
+    assert chart.setup.target == pytest.approx(90.0)
+    assert chart.setup.target_follows_band is True
+    assert "upper Bollinger band 98.0000 was touched: short entry" in chart.setup.confirmation
+    assert "Exit is the next touch of the lower band, now 90.0000" in chart.setup.confirmation
+    assert "rejection failed" in chart.setup.invalidation
+
+
+@pytest.mark.parametrize(
+    "overrides,expected_note",
+    [
+        ({"latest_high": 97.5}, "high did not reach the upper band"),
+        ({"bollinger_lower20": 97.5}, "no room left to the lower band"),
+        ({"latest_high": None}, "bands unavailable"),
+    ],
+)
+def test_short_reversion_is_refused_with_the_reason_stated(overrides, expected_note):
+    """Verifies: the short band entry has the same refusals as the long one, each explained."""
+    chart = analyze_chart(
+        make_indicators(**{**RALLY_IN_A_DOWNTREND, **overrides}),
+        blockers=[],
+        setup_rules=SetupRules(enabled_strategies=("BOLLINGER_REVERSION",)),
+    )
+    assert chart.setup is None
+    assert expected_note in notes_for(chart, "BOLLINGER_REVERSION")
+
+
+def test_a_short_whose_target_would_be_at_or_below_zero_is_refused():
+    """Verifies: a short on a low-priced symbol with a wide ATR cannot have a target at or
+    below zero; the strategy is disqualified instead.
+    """
+    chart = analyze_chart(make_indicators(close=5.0, sma20=6.0, sma50=7.0, atr14=1.0), blockers=[])
+    assert chart.setup is None
+    assert "stop or target would be at or below zero" in notes_for(chart, "TREND_CONTINUATION")
 
 
 def test_without_a_clear_trend_nothing_is_taken():
@@ -307,5 +423,5 @@ def test_a_stop_at_or_below_zero_disqualifies_the_strategy():
         make_indicators(atr14=80.0, prior_high20=108.0, relative_volume20=2.0), blockers=[]
     )
     assert chart.setup is None
-    assert "stop would be at or below zero" in notes_for(chart, "BREAKOUT")
-    assert "stop would be at or below zero" in notes_for(chart, "TREND_CONTINUATION")
+    assert "stop or target would be at or below zero" in notes_for(chart, "BREAKOUT")
+    assert "stop or target would be at or below zero" in notes_for(chart, "TREND_CONTINUATION")

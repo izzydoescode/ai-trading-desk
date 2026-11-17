@@ -249,7 +249,7 @@ def test_only_a_band_following_position_lets_its_target_be_moved():
     assert paper_venue.move_target("MSFT", 104.0) is False  # no such position
 
     band_venue = make_paper_venue()
-    band_venue.submit(make_trade_plan(target_follows_upper_band=True), DAY_ONE)
+    band_venue.submit(make_trade_plan(target_follows_band=True), DAY_ONE)
     band_venue.process_bar("AAPL", make_candle(1, open_price=100, high=101, low=99.5, close=100))
     assert band_venue.move_target("AAPL", 0.0) is False  # a non-positive level is ignored
     assert band_venue.move_target("AAPL", 104.0) is True
@@ -303,7 +303,7 @@ def test_a_band_following_trade_keeps_the_target_it_was_planned_with():
     trade was approved with, so plan and outcome can be compared.
     """
     paper_venue = make_paper_venue()
-    paper_venue.submit(make_trade_plan(target_follows_upper_band=True), DAY_ONE)
+    paper_venue.submit(make_trade_plan(target_follows_band=True), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=101, low=99.5, close=100))
     paper_venue.move_target("AAPL", 104.0)
     paper_venue.process_bar(
@@ -397,3 +397,176 @@ def test_an_early_exit_at_a_gap_down_open_takes_that_open():
     )
     assert [event.reason for event in exit_events] == ["STALLED"]
     assert paper_venue.closed_trades[0].exit_price == pytest.approx(93.0)
+
+
+def make_short_plan(units=10, entry=100.0, stop=105.0, target=90.0, **overrides):
+    """Test helper (not a test): builds a short plan: sell at 100, stop above at 105, target
+    below at 90, so the risk is 5 a share and the planned reward 10.
+    """
+    return make_trade_plan(
+        units=units,
+        entry=entry,
+        stop=stop,
+        target=target,
+        side=TradeSide.SHORT,
+        risk_amount=units * (stop - entry),
+        reward_to_risk=(entry - target) / (stop - entry),
+        **overrides,
+    )
+
+
+def open_short(paper_venue, **plan_overrides):
+    """Test helper (not a test): queues a short and fills it at an open of 100."""
+    paper_venue.submit(make_short_plan(**plan_overrides), DAY_ONE)
+    return paper_venue.process_bar(
+        "AAPL", make_candle(1, open_price=100, high=101, low=99, close=100)
+    )
+
+
+def test_a_short_profits_when_the_price_falls_to_its_target():
+    """Verifies: a short sold at 100 and bought back at its 90 target makes 10 a share, two
+    times its risk, and cash returns to the start plus that profit.
+    """
+    paper_venue = make_paper_venue()
+    fill_events = open_short(paper_venue)
+    assert [event.kind for event in fill_events] == [VenueEventKind.FILL]
+    assert paper_venue.positions["AAPL"].side is TradeSide.SHORT
+    assert paper_venue.cash == pytest.approx(9_000.0)  # 1,000 set aside as collateral
+    exit_events = paper_venue.process_bar(
+        "AAPL", make_candle(2, open_price=96, high=97, low=89, close=91)
+    )
+    assert [event.reason for event in exit_events] == ["TARGET"]
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.side is TradeSide.SHORT
+    assert closed_trade.exit_price == pytest.approx(90.0)
+    assert closed_trade.profit_and_loss == pytest.approx(100.0)
+    assert closed_trade.r_multiple == pytest.approx(2.0)
+    assert paper_venue.cash == pytest.approx(10_100.0)
+    assert paper_venue.equity == pytest.approx(10_100.0)
+
+
+def test_a_short_loses_when_the_price_rises_to_its_stop():
+    """Verifies: a short is stopped out by a rise: bought back at the 105 stop for the
+    planned loss of one R, and the loss counts toward the day's realised loss.
+    """
+    paper_venue = make_paper_venue()
+    open_short(paper_venue)
+    exit_events = paper_venue.process_bar(
+        "AAPL", make_candle(2, open_price=101, high=106, low=100, close=105)
+    )
+    assert [event.reason for event in exit_events] == ["STOP"]
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.exit_price == pytest.approx(105.0)
+    assert closed_trade.profit_and_loss == pytest.approx(-50.0)
+    assert closed_trade.r_multiple == pytest.approx(-1.0)
+    assert paper_venue.account_snapshot().realized_loss_today == pytest.approx(50.0)
+
+
+def test_an_open_short_is_marked_to_market_so_equity_falls_as_price_rises():
+    """Verifies: while a short is open, equity moves against the price: up 3 a share when
+    the price falls 3, down 2 a share when it rises 2.
+    """
+    paper_venue = make_paper_venue()
+    open_short(paper_venue)
+    paper_venue.process_bar("AAPL", make_candle(2, open_price=99, high=99.5, low=96.5, close=97))
+    assert paper_venue.equity == pytest.approx(10_030.0)
+    paper_venue.process_bar("AAPL", make_candle(3, open_price=98, high=102.5, low=97, close=102))
+    assert paper_venue.equity == pytest.approx(9_980.0)
+    assert paper_venue.account_snapshot().open_risk_amount == pytest.approx(50.0)
+
+
+def test_a_short_bar_touching_stop_and_target_counts_as_a_loss():
+    """Verifies: the worst-case rule holds for shorts too: one bar spanning both levels is
+    booked as the stop.
+    """
+    paper_venue = make_paper_venue()
+    open_short(paper_venue)
+    exit_events = paper_venue.process_bar(
+        "AAPL", make_candle(2, open_price=100, high=106, low=89, close=95)
+    )
+    assert [event.reason for event in exit_events] == ["STOP"]
+
+
+def test_short_gaps_exit_at_the_open():
+    """Verifies: a gap up through a short's stop is bought back at the open (worse than the
+    stop), and a gap down through its target is bought back at the open (better).
+    """
+    gapped_against = make_paper_venue()
+    open_short(gapped_against)
+    gapped_against.process_bar("AAPL", make_candle(2, open_price=108, high=109, low=107, close=108))
+    assert gapped_against.closed_trades[0].exit_price == pytest.approx(108.0)
+    assert gapped_against.closed_trades[0].exit_reason is ExitReason.STOP
+
+    gapped_in_favour = make_paper_venue()
+    open_short(gapped_in_favour)
+    gapped_in_favour.process_bar("AAPL", make_candle(2, open_price=88, high=89, low=87, close=88))
+    assert gapped_in_favour.closed_trades[0].exit_price == pytest.approx(88.0)
+    assert gapped_in_favour.closed_trades[0].exit_reason is ExitReason.TARGET
+
+
+@pytest.mark.parametrize(
+    "open_price,expected_reason",
+    [(105.0, "opened_at_or_above_stop"), (90.0, "opened_at_or_below_target")],
+)
+def test_a_short_order_is_cancelled_when_the_open_voids_the_idea(open_price, expected_reason):
+    """Verifies: a short is not opened if the next open is already at or beyond its stop or
+    its target.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_short_plan(), DAY_ONE)
+    events = paper_venue.process_bar(
+        "AAPL",
+        make_candle(
+            1, open_price=open_price, high=open_price + 1, low=open_price - 1, close=open_price
+        ),
+    )
+    assert [(event.kind, event.reason) for event in events] == [
+        (VenueEventKind.CANCEL, expected_reason)
+    ]
+    assert paper_venue.cash == 10_000.0
+
+
+def test_costs_work_against_a_short_on_both_sides():
+    """Verifies: with slippage and commission a short sells a little lower and buys back a
+    little higher, so the result is below the frictionless 100 and costs are recorded.
+    """
+    paper_venue = make_paper_venue(COSTLY_MARKET)
+    open_short(paper_venue)
+    assert paper_venue.positions["AAPL"].entry_price == pytest.approx(99.9)
+    paper_venue.process_bar("AAPL", make_candle(2, open_price=96, high=97, low=89, close=91))
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.exit_price == pytest.approx(90.09)
+    # (99.9 - 90.09) x 10 minus 0.1% commission on each side.
+    assert closed_trade.profit_and_loss == pytest.approx(98.1 - 0.999 - 0.9009, abs=0.01)
+    assert closed_trade.total_cost == pytest.approx(1.0 + 0.9 + 0.999 + 0.9009, abs=0.01)
+
+
+def test_a_short_records_its_excursions_the_right_way_round():
+    """Verifies: for a short, the best point is the lowest price and the worst the highest."""
+    paper_venue = make_paper_venue()
+    open_short(paper_venue)
+    paper_venue.process_bar("AAPL", make_candle(2, open_price=100, high=102, low=96, close=97))
+    paper_venue.process_bar("AAPL", make_candle(3, open_price=96, high=97, low=89, close=91))
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.maximum_favorable_excursion_r == pytest.approx(2.0)  # down to 90
+    assert closed_trade.maximum_adverse_excursion_r == pytest.approx(-0.4)  # up to 102
+
+
+def test_a_stalled_short_is_bought_back_early():
+    """Verifies: the early-exit rule mirrors for shorts: held long enough, closing above the
+    entry, never half its risk in profit, so it is covered at the next open.
+    """
+    paper_venue = make_paper_venue()
+    open_short(paper_venue, stalled_trade_sessions=2)
+    paper_venue.process_bar("AAPL", make_candle(2, open_price=100, high=101.5, low=99.6, close=101))
+    assert paper_venue.positions["AAPL"].exit_at_next_open is True
+    exit_events = paper_venue.process_bar(
+        "AAPL", make_candle(3, open_price=101.2, high=102, low=100.5, close=101)
+    )
+    assert [event.reason for event in exit_events] == ["STALLED"]
+    assert paper_venue.closed_trades[0].r_multiple == pytest.approx(-0.24)
+
+    working = make_paper_venue()
+    open_short(working, stalled_trade_sessions=2)
+    working.process_bar("AAPL", make_candle(2, open_price=100, high=100.5, low=97, close=98))
+    assert working.positions["AAPL"].exit_at_next_open is False  # it is ahead: left alone

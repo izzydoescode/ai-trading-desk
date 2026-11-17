@@ -202,3 +202,58 @@ def test_the_approved_plan_carries_the_early_exit_rule_from_the_risk_limits():
     assert (
         evaluate(limits=RiskLimits(stalled_trade_sessions=None)).plan.stalled_trade_sessions is None
     )
+
+
+def make_chart_report_with_short_setup(entry_reference=100.0, stop=105.0, target=85.0):
+    """Test helper (not a test): builds a chart report carrying a complete short setup."""
+    return ChartReport(
+        thesis=make_analysis(),
+        counter_case=make_analysis(),
+        setup=TradeSetup(
+            strategy="TREND_CONTINUATION",
+            side="SHORT",
+            entry_reference=entry_reference,
+            stop=stop,
+            target=target,
+            confirmation="c",
+            invalidation="i",
+        ),
+    )
+
+
+def test_a_short_is_sized_from_the_same_loss_limit_as_a_long():
+    """Verifies: for a short the risk is the distance up to the stop: 1% of 100,000 is 1,000,
+    5 a share is 200 shares, and the plan is marked SHORT with a 3-to-1 reward.
+    """
+    report = evaluate(chart_setup=make_chart_report_with_short_setup())
+    assert report.verdict is RiskVerdict.APPROVE
+    assert report.plan.side.value == "SHORT"
+    assert report.plan.units == 200
+    assert report.plan.risk_amount == pytest.approx(1000.0)
+    assert report.plan.notional == pytest.approx(20_000.0)
+    assert report.plan.reward_to_risk == pytest.approx(3.0)
+    assert (report.plan.stop, report.plan.target) == (105.0, 85.0)
+
+
+def test_costs_cut_a_shorts_reward_and_add_to_its_risk_too():
+    """Verifies: trading costs hurt a short exactly as they hurt a long: risk 6, reward 14."""
+    costly_market = US_EQUITIES.model_copy(update={"commission_rate": 0.0, "slippage_rate": 0.005})
+    report = evaluate(chart_setup=make_chart_report_with_short_setup(), market=costly_market)
+    assert report.verdict is RiskVerdict.REVISE
+    assert check(report, odin.REWARD_TO_RISK_CHECK).actual == "2.33"
+
+
+def test_a_short_with_too_little_reward_is_sent_back_and_the_veto_rules_still_apply():
+    """Verifies: the reward floor, the kill switch and the open-idea limit bind shorts too."""
+    thin = evaluate(chart_setup=make_chart_report_with_short_setup(target=92.0))
+    assert thin.verdict is RiskVerdict.REVISE
+    halted = evaluate(
+        chart_setup=make_chart_report_with_short_setup(),
+        limits=RiskLimits(kill_switch_engaged=True),
+    )
+    assert halted.verdict is RiskVerdict.REJECT
+    second_idea = evaluate(
+        chart_setup=make_chart_report_with_short_setup(),
+        account_snapshot=make_account_snapshot(open_idea_count=1),
+    )
+    assert "Open ideas" in second_idea.failed_checks

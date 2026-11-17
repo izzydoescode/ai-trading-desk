@@ -12,6 +12,7 @@ import anthropic
 import httpx
 import uvicorn
 
+from trading_desk.agents.neo import SetupRules
 from trading_desk.backtest.runner import (
     BacktestReport,
     HoldoutAlreadyUsedError,
@@ -28,7 +29,7 @@ from trading_desk.llm import (
     UsageMeter,
 )
 from trading_desk.markets import US_EQUITIES
-from trading_desk.models import AccountSnapshot, DeskReport, Report
+from trading_desk.models import AccountSnapshot, DeskReport, Report, TradeSide
 from trading_desk.observability import (
     DEFAULT_SERVER_LOG_FILE,
     LOG_LEVELS,
@@ -60,6 +61,11 @@ DEFAULT_HOLDOUT_LEDGER = Path("research/holdout_log.jsonl")
 DEFAULT_MODEL_CACHE_DIRECTORY = Path("data/model_cache")
 DEFAULT_NEWS_CACHE_DIRECTORY = Path("data/news_cache")
 NEWS_SOURCES = ["none", "finnhub"]
+SIDE_CHOICES = {
+    "both": (TradeSide.LONG, TradeSide.SHORT),
+    "long": (TradeSide.LONG,),
+    "short": (TradeSide.SHORT,),
+}
 SENTIMENT_SOURCES = ["none", "headline-tone"]
 DEFAULT_MAXIMUM_MODEL_COST_USD = 0.50
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
@@ -126,6 +132,11 @@ def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
             raise ValueError("Pass --csv-dir with a folder of <SYMBOL>.csv files for csv data")
         return CsvDirectoryProvider(args.csv_dir)
     return FixtureProvider(args.scenario)
+
+
+def build_setup_rules(args) -> SetupRules:
+    """NEO's rules for this run: the default strategies, limited to the sides asked for."""
+    return SetupRules(allowed_sides=SIDE_CHOICES[args.sides])
 
 
 def build_news_feed(args, client: httpx.AsyncClient) -> NewsFeed | None:
@@ -243,13 +254,25 @@ async def execute_desk(args) -> list[DeskReport]:
         if args.desk_command == "decide":
             desk_reports = [
                 await run_desk_decision(
-                    args.symbol, provider, account, evaluation_time, llm=llm, **feeds
+                    args.symbol,
+                    provider,
+                    account,
+                    evaluation_time,
+                    llm=llm,
+                    setup_rules=build_setup_rules(args),
+                    **feeds,
                 )
             ]
         else:
             symbols = args.symbols or list(US_EQUITIES.default_watchlist)
             desk_reports = await scan_watchlist(
-                symbols, provider, account, evaluation_time, llm=llm, **feeds
+                symbols,
+                provider,
+                account,
+                evaluation_time,
+                llm=llm,
+                setup_rules=build_setup_rules(args),
+                **feeds,
             )
     if llm is not None:
         print(
@@ -280,6 +303,7 @@ async def execute_backtest(args) -> BacktestReport:
                 holdout_ledger=HoldoutLedger(args.holdout_ledger),
                 allow_holdout_reuse=args.allow_holdout_reuse,
                 starting_cash=args.equity,
+                setup_rules=build_setup_rules(args),
                 journal=journal,
             )
     finally:
@@ -334,6 +358,7 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
         llm = build_reasoning_provider(args, client, usage_meter)
         desk_session = DeskSession(
             build_data_provider(args, client),
+            setup_rules=build_setup_rules(args),
             journal=journal,
             news_feed=news_feed,
             sentiment_feed=build_sentiment_feed(args, news_feed, llm),
@@ -550,6 +575,13 @@ def build_parser() -> argparse.ArgumentParser:
         add_data_arguments(desk_command)
         desk_command.add_argument(
             "--equity", type=float, default=DEFAULT_PAPER_EQUITY, help="Paper account equity"
+        )
+        desk_command.add_argument(
+            "--sides",
+            choices=sorted(SIDE_CHOICES),
+            default="both",
+            help="Sides NEO may trade: both (longs in uptrends, shorts in downtrends), "
+            "long only, or short only",
         )
     return parser
 

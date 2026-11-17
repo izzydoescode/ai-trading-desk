@@ -17,7 +17,6 @@ from trading_desk.models import (
     RiskReport,
     RiskVerdict,
     TradePlan,
-    TradeSide,
 )
 
 REWARD_TO_RISK_CHECK = "Reward to risk after costs"
@@ -92,8 +91,10 @@ def evaluate(
     if setup is not None:
         entry_reference, stop, target = setup.entry_reference, setup.stop, setup.target
         cost_per_unit = entry_reference * market_profile.round_trip_cost_rate
-        risk_per_unit = entry_reference - stop + cost_per_unit
-        reward_per_unit = target - entry_reference - cost_per_unit
+        # The same arithmetic serves both sides: risk is the distance to the stop and
+        # reward the distance to the target, whichever way the trade points.
+        risk_per_unit = abs(entry_reference - stop) + cost_per_unit
+        reward_per_unit = abs(target - entry_reference) - cost_per_unit
         reward_to_risk = reward_per_unit / risk_per_unit
         checks.append(
             RiskCheck(
@@ -142,9 +143,9 @@ def evaluate(
         if units > 0 and reward_to_risk > 0:
             plan = TradePlan(
                 symbol=symbol,
-                side=TradeSide.LONG,
+                side=setup.side,
                 strategy=setup.strategy,
-                target_follows_upper_band=setup.target_follows_upper_band,
+                target_follows_band=setup.target_follows_band,
                 stalled_trade_sessions=limits.stalled_trade_sessions,
                 stalled_trade_progress_r=limits.stalled_trade_progress_r,
                 entry_reference=entry_reference,

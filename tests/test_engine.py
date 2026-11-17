@@ -376,3 +376,69 @@ async def test_every_trade_taken_has_its_decision_report_and_its_record_in_the_j
     assert saved_trades[0].bars_held > 0
     assert saved_trades[0].maximum_favorable_excursion_r >= saved_trades[0].r_multiple > 0
     assert journal.run_ids() == [result.run_id]
+
+
+def make_falling_candles(session_count=95, daily_loss=0.4, start_price=140.0):
+    """Test helper (not a test): builds a steady downtrend with a small bounce every fifth
+    session, the mirror of `make_trending_candles`.
+    """
+    candles, price, session_date = [], start_price, FIRST_BAR
+    while len(candles) < session_count:
+        if session_date.weekday() < 5:
+            change = 0.6 if len(candles) % 5 == 4 else -daily_loss
+            open_price, price = price, round(price + change, 4)
+            candles.append(
+                Candle(
+                    timestamp=session_date,
+                    open=open_price,
+                    high=max(open_price, price) + 0.5,
+                    low=min(open_price, price) - 0.5,
+                    close=price,
+                    volume=1_000_000,
+                )
+            )
+        session_date += timedelta(days=1)
+    return candles
+
+
+async def test_a_downtrend_is_traded_short_from_decision_to_closed_trade():
+    """Verifies: in a falling market the desk takes a short end to end: HAWKEYE rates it a
+    short candidate, NEO's setup and ODIN's plan are short, the venue fills it, and the
+    trade makes money as the price keeps falling.
+    """
+    candles = make_falling_candles()
+    journal = Journal()
+    result, venue = await run(
+        SyntheticProvider({"AAPL": candles}),
+        end=candles[-1].timestamp,
+        journal=journal,
+        limits=RiskLimits(stalled_trade_sessions=None),
+    )
+    assert len(result.closed_trades) >= 1
+    first_trade = result.closed_trades[0]
+    assert first_trade.side.value == "SHORT"
+    assert first_trade.planned_stop > first_trade.entry_price > first_trade.planned_target
+    assert first_trade.exit_price < first_trade.entry_price
+    assert first_trade.profit_and_loss > 0
+    assert result.final_equity > STARTING_CASH
+    saved_decision = journal.decisions(result.run_id)[0]
+    assert saved_decision["scout"]["side"] == "SHORT"
+    assert saved_decision["chart"]["trend"] == "BEARISH"
+    assert saved_decision["chart"]["setup"]["side"] == "SHORT"
+    assert saved_decision["decision"]["plan"]["side"] == "SHORT"
+
+
+async def test_running_long_only_a_downtrend_takes_no_trade():
+    """Verifies: with the short side switched off, the same falling market produces no trade
+    at all rather than a long against the trend.
+    """
+    from trading_desk.agents.neo import SetupRules
+
+    candles = make_falling_candles()
+    result, _ = await run(
+        SyntheticProvider({"AAPL": candles}),
+        end=candles[-1].timestamp,
+        setup_rules=SetupRules(allowed_sides=("LONG",)),
+    )
+    assert result.closed_trades == []
+    assert result.final_equity == STARTING_CASH

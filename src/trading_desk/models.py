@@ -84,6 +84,8 @@ class Indicators(Model):
     prior_high20: float | None = None
     prior_high55: float | None = None
     prior_high252: float | None = None
+    prior_low20: float | None = None
+    prior_low55: float | None = None
     prior_low252: float | None = None
     # 20-session simple average of closes plus and minus two standard deviations.
     bollinger_upper20: float | None = None
@@ -110,6 +112,8 @@ class Evidence(Model):
         "prior_high20",
         "prior_high55",
         "prior_high252",
+        "prior_low20",
+        "prior_low55",
         "prior_low252",
         "bollinger_upper20",
         "bollinger_lower20",
@@ -193,6 +197,20 @@ class ScoutVerdict(StrEnum):
     NEED_MORE_DATA = "NEED_MORE_DATA"
 
 
+class TradeSide(StrEnum):
+    """Which way a trade bets. LONG profits when the price rises, SHORT when it falls."""
+
+    LONG = "LONG"
+    SHORT = "SHORT"
+
+
+def levels_fit_the_side(side: TradeSide, entry: float, stop: float, target: float) -> bool:
+    """A long needs stop < entry < target; a short needs target < entry < stop."""
+    if side is TradeSide.LONG:
+        return stop < entry < target
+    return target < entry < stop
+
+
 class ScoutSignalKind(StrEnum):
     NEW_52_WEEK_HIGH = "NEW_52_WEEK_HIGH"
     NEW_52_WEEK_LOW = "NEW_52_WEEK_LOW"
@@ -219,6 +237,9 @@ class ScoutReport(Model):
     symbol: str
     verdict: ScoutVerdict
     score: float | None = Field(default=None, ge=0, le=1)
+    # The side the score argues for: LONG in an uptrend, SHORT in a downtrend, None when
+    # there is no trend to follow or no data.
+    side: TradeSide | None = None
     # Latest session's volume is at least 50% above its 20-session average.
     volume_surge: bool = False
     signals: list[ScoutSignal] = Field(default_factory=list)
@@ -232,10 +253,6 @@ class ScoutReport(Model):
         return self
 
 
-class TradeSide(StrEnum):
-    LONG = "LONG"
-
-
 class SetupStrategy(StrEnum):
     """The entry patterns NEO knows. Each has its own trigger, stop and target."""
 
@@ -245,7 +262,7 @@ class SetupStrategy(StrEnum):
 
 
 class TradeSetup(Model):
-    """A complete long idea: the pattern that triggered and all three prices.
+    """A complete idea, long or short: the pattern that triggered and all three prices.
 
     There is no such thing as a setup without an entry, a stop and a target, so
     every field is required. When no pattern triggers, NEO's `ChartReport` simply
@@ -253,19 +270,23 @@ class TradeSetup(Model):
     """
 
     strategy: SetupStrategy
+    side: TradeSide = TradeSide.LONG
     entry_reference: float = Field(gt=0)
     stop: float = Field(gt=0)
     target: float = Field(gt=0)
     confirmation: str = Field(min_length=1)
     invalidation: str = Field(min_length=1)
-    # True when the exit is "the next touch of the upper Bollinger band": the target then
-    # moves with the band each session instead of staying at the price set on entry.
-    target_follows_upper_band: bool = False
+    # True when the exit is "the next touch of the opposite Bollinger band" (the upper
+    # band for a long, the lower band for a short): the target then moves with that band
+    # each session instead of staying at the price set on entry.
+    target_follows_band: bool = False
 
     @model_validator(mode="after")
     def coherent_levels(self) -> Self:
-        if not (self.stop < self.entry_reference < self.target):
-            raise ValueError("a long setup needs stop < entry < target")
+        if not levels_fit_the_side(self.side, self.entry_reference, self.stop, self.target):
+            raise ValueError(
+                "a long setup needs stop < entry < target; a short needs target < entry < stop"
+            )
         return self
 
 
@@ -415,15 +436,17 @@ class TradePlan(Model):
     notional: float = Field(gt=0)
     risk_amount: float = Field(gt=0)
     reward_to_risk: float = Field(gt=0)
-    target_follows_upper_band: bool = False
+    target_follows_band: bool = False
     # The early-exit rule this trade is held under, copied from the risk limits.
     stalled_trade_sessions: int | None = Field(default=None, ge=1)
     stalled_trade_progress_r: float = Field(default=0.5, ge=0)
 
     @model_validator(mode="after")
     def coherent_levels(self) -> Self:
-        if not (self.stop < self.entry_reference < self.target):
-            raise ValueError("a long plan needs stop < entry < target")
+        if not levels_fit_the_side(self.side, self.entry_reference, self.stop, self.target):
+            raise ValueError(
+                "a long plan needs stop < entry < target; a short needs target < entry < stop"
+            )
         return self
 
 
@@ -558,6 +581,7 @@ class Position(Model):
     """An open paper position. The stop and target come from the approved plan."""
 
     symbol: str
+    side: TradeSide = TradeSide.LONG
     units: float = Field(gt=0)
     entry_price: float = Field(gt=0)
     stop: float = Field(gt=0)
@@ -567,7 +591,7 @@ class Position(Model):
     entry_slippage_cost: float = Field(ge=0)
     planned_risk_amount: float = Field(gt=0)
     strategy: SetupStrategy
-    target_follows_upper_band: bool = False
+    target_follows_band: bool = False
     # Kept for the trade record: the target as planned, and how the trade has behaved.
     planned_target: float = Field(gt=0)
     bars_held: int = Field(default=0, ge=0)
@@ -590,6 +614,7 @@ class ClosedTrade(Model):
     """
 
     symbol: str
+    side: TradeSide = TradeSide.LONG
     strategy: SetupStrategy
     units: float = Field(gt=0)
     entry_price: float = Field(gt=0)
