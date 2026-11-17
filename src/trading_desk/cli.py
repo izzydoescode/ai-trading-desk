@@ -22,6 +22,7 @@ from trading_desk.graph import run_research
 from trading_desk.llm import OpenAIProvider
 from trading_desk.markets import US_EQUITIES
 from trading_desk.models import AccountSnapshot, DeskReport, Report
+from trading_desk.settings import load_env_file
 from trading_desk.tools.historical_data import (
     CachingProvider,
     CsvDirectoryProvider,
@@ -260,6 +261,7 @@ def run_desk_command(args) -> int:
 
 
 def main() -> int:
+    load_env_file()
     parser = build_parser()
     args = parser.parse_args()
     if args.source != "fixture" and args.scenario != "trend":
