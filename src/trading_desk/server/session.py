@@ -24,6 +24,7 @@ from trading_desk.paper import PaperVenue
 from trading_desk.paper.journal import Journal
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
+from trading_desk.tools.sentiment import SentimentFeed
 
 MAXIMUM_BARS_PER_SECOND = 1000.0
 RECENT_EVENT_LIMIT = 200
@@ -80,10 +81,12 @@ class DeskSession:
         setup_rules: SetupRules = DEFAULT_SETUP_RULES,
         journal: Journal | None = None,
         news_feed: NewsFeed | None = None,
+        sentiment_feed: SentimentFeed | None = None,
         sleep: Sleeper = asyncio.sleep,
     ):
         self.data_provider = data_provider
         self.news_feed = news_feed
+        self.sentiment_feed = sentiment_feed
         self.market_profile, self.limits, self.setup_rules = market_profile, limits, setup_rules
         self.journal = journal
         self._sleep = sleep
@@ -172,6 +175,7 @@ class DeskSession:
             "market": self.market_profile.name,
             "data_source": self.data_provider.name,
             "news_source": self.news_feed.name if self.news_feed else None,
+            "sentiment_source": self.sentiment_feed.name if self.sentiment_feed else None,
             "settings": self.settings.model_dump(mode="json") if self.settings else None,
             "limits": self.limits.model_dump(mode="json"),
             "setup_rules": self.setup_rules.model_dump(mode="json"),
@@ -269,6 +273,7 @@ class DeskSession:
                 on_event=self._on_event,
                 on_bar=self._on_bar,
                 news_feed=self.news_feed,
+                sentiment_feed=self.sentiment_feed,
             )
             self.status = SessionStatus.FINISHED
         except asyncio.CancelledError:

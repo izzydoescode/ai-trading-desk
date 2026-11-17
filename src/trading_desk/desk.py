@@ -48,11 +48,13 @@ from trading_desk.models import (
 )
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
+from trading_desk.tools.sentiment import SentimentFeed
 
 RULES_PROVIDER_NAME = "deterministic-rules"
 MODEL_REVIEW_TIMEOUT_SECONDS = 100
 # Generous: a cold cache queues one rate-limited request per symbol per week.
 NEWS_TIMEOUT_SECONDS = 60
+SENTIMENT_TIMEOUT_SECONDS = 120
 ANALYST_NODE_NAMES = ["hawkeye", "neo", "snowden", "fama"]
 DEFAULT_RISK_LIMITS = RiskLimits()
 
@@ -86,6 +88,7 @@ def build_desk_graph(
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     llm: ReasoningProvider | None = None,
     news_feed: NewsFeed | None = None,
+    sentiment_feed: SentimentFeed | None = None,
 ):
     def trace(state: DeskState, agent: str, start: float, error: str | None = None) -> list[Trace]:
         return record_trace(state["run_id"], agent, start, error, RULES_PROVIDER_NAME)
@@ -146,10 +149,27 @@ def build_desk_graph(
             "trace": record_trace(state["run_id"], "snowden", start, error, provider_name),
         }
 
-    def run_fama(state: DeskState):
+    async def run_fama(state: DeskState):
         start = perf_counter()
-        sentiment_report = fama.report(state.get("sentiment_reading"))
-        return {"sentiment": sentiment_report, "trace": trace(state, "fama", start)}
+        sentiment_reading, error = state.get("sentiment_reading"), None
+        provider_name = RULES_PROVIDER_NAME
+        if sentiment_reading is None and sentiment_feed is not None:
+            provider_name = sentiment_feed.name
+            try:
+                sentiment_reading = await asyncio.wait_for(
+                    sentiment_feed.fetch(
+                        state["symbol"], state["as_of"] - snowden.NEWS_LOOKBACK, state["as_of"]
+                    ),
+                    timeout=SENTIMENT_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                # Class name only, and FAMA abstains: a failed reading is not a calm crowd.
+                error = f"Sentiment retrieval failed: {type(exc).__name__}"
+        sentiment_report = fama.report(sentiment_reading)
+        return {
+            "sentiment": sentiment_report,
+            "trace": record_trace(state["run_id"], "fama", start, error, provider_name),
+        }
 
     def run_odin(state: DeskState):
         start = perf_counter()
@@ -252,13 +272,14 @@ class Desk:
         setup_rules: SetupRules = DEFAULT_SETUP_RULES,
         llm: ReasoningProvider | None = None,
         news_feed: NewsFeed | None = None,
+        sentiment_feed: SentimentFeed | None = None,
     ):
         self.market_profile = market_profile
         self.limits = limits
         self.setup_rules = setup_rules
         self.llm = llm
         self.graph = build_desk_graph(
-            data_provider, market_profile, limits, setup_rules, llm, news_feed
+            data_provider, market_profile, limits, setup_rules, llm, news_feed, sentiment_feed
         )
 
     async def decide(
@@ -340,9 +361,10 @@ async def run_desk_decision(
     sentiment_reading: SentimentReading | None = None,
     llm: ReasoningProvider | None = None,
     news_feed: NewsFeed | None = None,
+    sentiment_feed: SentimentFeed | None = None,
 ) -> DeskReport:
     """One-off decision: builds a Desk and asks it once."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed)
+    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed, sentiment_feed)
     return await desk.decide(
         symbol, account, as_of, news_items=news_items, sentiment_reading=sentiment_reading
     )
@@ -359,7 +381,8 @@ async def scan_watchlist(
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     llm: ReasoningProvider | None = None,
     news_feed: NewsFeed | None = None,
+    sentiment_feed: SentimentFeed | None = None,
 ) -> list[DeskReport]:
     """One-off ranked scan of a watchlist."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed)
+    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed, sentiment_feed)
     return await desk.scan(symbols, account, as_of)
