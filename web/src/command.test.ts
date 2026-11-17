@@ -7,6 +7,7 @@ describe("command line", () => {
     ["pause", { kind: "pause" }],
     [" Resume ", { kind: "resume" }],
     ["STOP", { kind: "stop" }],
+    ["live", { kind: "live" }],
     ["kill", { kind: "killSwitch", engaged: true }],
     ["arm", { kind: "killSwitch", engaged: false }],
     ["start", { kind: "start", symbols: [] }],

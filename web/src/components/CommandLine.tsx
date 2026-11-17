@@ -36,6 +36,9 @@ export function CommandLine({ knownSymbols, controls, notice }: CommandLineProps
       case "stop":
         controls.stop();
         break;
+      case "live":
+        controls.goLive();
+        break;
       case "speed":
         controls.setSpeed(command.barsPerSecond);
         break;

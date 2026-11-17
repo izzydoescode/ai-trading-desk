@@ -15,8 +15,11 @@ export function Header({ desk, connection, controls }: HeaderProps) {
   const status = desk?.status ?? "IDLE";
   const isActive = status === "RUNNING" || status === "PAUSED";
   const killSwitchEngaged = desk?.kill_switch_engaged ?? false;
-  const barPosition =
-    desk?.bar_index != null && desk.bar_count != null
+  const isLive = desk?.mode === "live";
+  // A live run has no known end, so it counts the sessions it has seen instead.
+  const barPosition = isLive
+    ? `SESSION ${desk?.bar_index != null ? desk.bar_index + 1 : "–"}`
+    : desk?.bar_index != null && desk.bar_count != null
       ? `BAR ${desk.bar_index + 1}/${desk.bar_count}`
       : "BAR –";
 
@@ -27,7 +30,9 @@ export function Header({ desk, connection, controls }: HeaderProps) {
         <h1>AI TRADING DESK</h1>
       </div>
       <div className="run-status">
-        <span className="badge tone-info">REPLAY</span>
+        <span className={`badge tone-${isLive ? "amber" : "info"}`}>
+          {isLive ? "● LIVE DATA" : "REPLAY"}
+        </span>
         <span className="badge tone-up">PAPER</span>
         <span className={`badge tone-${STATUS_TONES[status]}`}>{status}</span>
         {connection !== "open" && (
@@ -41,22 +46,24 @@ export function Header({ desk, connection, controls }: HeaderProps) {
         <span className="label">DATA {desk?.data_source ?? "–"}</span>
       </div>
       <div className="controls">
-        <label className="speed">
-          <span className="label">SPEED</span>
-          <select
-            aria-label="Replay speed in bars per second"
-            value={desk?.bars_per_second ?? 2}
-            onChange={(event) => controls.setSpeed(Number(event.target.value))}
-          >
-            {[...new Set([...SPEED_CHOICES, desk?.bars_per_second ?? 2])]
-              .sort((first, second) => first - second)
-              .map((speed) => (
-                <option key={speed} value={speed}>
-                  {speed}x
-                </option>
-              ))}
-          </select>
-        </label>
+        {!isLive && (
+          <label className="speed">
+            <span className="label">SPEED</span>
+            <select
+              aria-label="Replay speed in bars per second"
+              value={desk?.bars_per_second ?? 2}
+              onChange={(event) => controls.setSpeed(Number(event.target.value))}
+            >
+              {[...new Set([...SPEED_CHOICES, desk?.bars_per_second ?? 2])]
+                .sort((first, second) => first - second)
+                .map((speed) => (
+                  <option key={speed} value={speed}>
+                    {speed}x
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         {status === "RUNNING" && (
           <button type="button" onClick={controls.pause}>
             PAUSE
@@ -76,9 +83,15 @@ export function Header({ desk, connection, controls }: HeaderProps) {
             {status === "IDLE" ? "START REPLAY" : "REPLAY AGAIN"}
           </button>
         )}
-        <button type="button" onClick={controls.goLive} title="Live polling is not built yet">
-          GO LIVE
-        </button>
+        {!(isLive && isActive) && (
+          <button
+            type="button"
+            onClick={controls.goLive}
+            title="Poll live prices and act on each completed session. Trades stay on the paper venue."
+          >
+            GO LIVE
+          </button>
+        )}
         <button
           type="button"
           className="danger"

@@ -49,6 +49,14 @@ export function barTime(timestamp: string | null | undefined): string {
   return `${parsed.toISOString().slice(0, 10)} ${parsed.toISOString().slice(11, 16)} UTC`;
 }
 
+/** 2025-03-13T21:00:05Z -> "21:00:05 UTC" */
+export function clockTime(timestamp: string | null | undefined): string {
+  if (!timestamp) return MISSING;
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return MISSING;
+  return `${parsed.toISOString().slice(11, 19)} UTC`;
+}
+
 /** 2025-03-13T21:00:00Z -> "03-13" */
 export function shortDate(timestamp: string | null | undefined): string {
   const formatted = barTime(timestamp);

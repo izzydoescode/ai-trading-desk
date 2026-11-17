@@ -241,4 +241,43 @@ describe("terminal page", () => {
     send(statusMessage({ status: "FAILED", error: null }));
     expect(screen.getByRole("alert")).toHaveTextContent("unknown error");
   });
+
+  it("shows a live run: live badge, session count, live price, and no replay speed", async () => {
+    const user = userEvent.setup();
+    renderDesk(cloneSnapshot({ status: "RUNNING", mode: "live", bar_index: 2, bar_count: null }));
+    const header = screen.getByRole("banner");
+    expect(within(header).getByText("● LIVE DATA")).toBeInTheDocument();
+    expect(within(header).getByText("PAPER")).toBeInTheDocument();
+    expect(within(header).getByText("SESSION 3")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Replay speed/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "GO LIVE" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Live prices are for display/)).toBeInTheDocument();
+
+    const chart = screen.getByRole("region", { name: "Chart" });
+    expect(within(chart).queryByText("LIVE")).not.toBeInTheDocument();
+    send({
+      type: "prices",
+      latest_prices: { AAPL: 352.66 },
+      prices_as_of: "2026-11-17T15:00:05Z",
+    });
+    expect(within(chart).getByText("352.66")).toBeInTheDocument();
+    expect(within(chart).getByText("15:00:05 UTC")).toBeInTheDocument();
+    expect(within(chart).getByText("CLOSE")).toBeInTheDocument();
+
+    send(statusMessage({ status: "RUNNING", mode: "live", error: "ConnectError" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "LIVE DATA CHECK FAILED · ConnectError · retrying",
+    );
+    send(statusMessage({ status: "IDLE", mode: "live", bar_index: null }));
+    expect(within(header).getByText("SESSION –")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "GO LIVE" }));
+    expect(lastPost()).toEqual(["/api/mode", { mode: "live" }]);
+  });
+
+  it("goes live from the command line", async () => {
+    const user = userEvent.setup();
+    renderDesk(cloneSnapshot());
+    await user.type(screen.getByRole("textbox"), "live{Enter}");
+    expect(lastPost()).toEqual(["/api/mode", { mode: "live" }]);
+  });
 });

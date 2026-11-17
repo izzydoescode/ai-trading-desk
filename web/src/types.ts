@@ -248,12 +248,15 @@ export interface Snapshot extends StatusFields {
   data_source: string;
   /** Name of the news feed SNOWDEN reads, or null when none is configured. */
   news_source?: string | null;
+  /** A replay has a window and a speed; a live run has polling intervals instead. */
   settings: {
     symbols: string[];
-    start: string;
-    end: string;
-    bars_per_second: number;
     starting_cash: number;
+    start?: string;
+    end?: string;
+    bars_per_second?: number;
+    price_poll_seconds?: number;
+    bar_check_seconds?: number;
   } | null;
   limits: RiskLimits;
   setup_rules: { stop_atr_multiple: number; target_reward_multiple: number };
@@ -262,6 +265,17 @@ export interface Snapshot extends StatusFields {
   candles_by_symbol: Record<string, Candle[]>;
   reports_by_symbol: Record<string, DeskReport>;
   recent_events: DeskEvent[];
+  /** True when the data source can be polled live (Alpaca). */
+  live_available?: boolean;
+  /** Latest traded price per symbol, for display only; the desk decides on closed sessions. */
+  latest_prices?: Record<string, number>;
+  prices_as_of?: string | null;
+}
+
+export interface PricesMessage {
+  type: "prices";
+  latest_prices: Record<string, number>;
+  prices_as_of: string | null;
 }
 
 export interface BarMessage extends StatusFields {
@@ -277,4 +291,5 @@ export type ServerMessage =
   | BarMessage
   | ({ type: "status" } & StatusFields)
   | { type: "event"; event: DeskEvent }
-  | { type: "account"; account: Account | null };
+  | { type: "account"; account: Account | null }
+  | PricesMessage;
