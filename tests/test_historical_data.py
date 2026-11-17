@@ -1,10 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
+from trading_desk.models import Candle, MarketData
 from trading_desk.tools.historical_data import (
+    CachingProvider,
     CsvDirectoryProvider,
+    FallbackProvider,
     YahooChartProvider,
     parse_daily_bar_csv,
 )
@@ -205,3 +208,100 @@ async def test_yahoo_rejects_incoherent_bars_instead_of_dropping_them():
 
 async def no_sleep(seconds):
     return None
+
+
+def one_candle_market_data(symbol="AAPL", source="counting", retrieved_at=None):
+    candle = Candle(
+        timestamp=datetime(2025, 1, 2, tzinfo=UTC), open=1, high=2, low=1, close=2, volume=5
+    )
+    extra = {"retrieved_at": retrieved_at} if retrieved_at else {}
+    return MarketData(symbol=symbol, source=source, candles=[candle], **extra)
+
+
+class CountingProvider:
+    """Fake provider that records how often it is asked and replays scripted results."""
+
+    def __init__(self, name="counting", results=None):
+        self.name = name
+        self.fetch_count = 0
+        self.results = list(results or [])
+
+    async def fetch(self, symbol):
+        self.fetch_count += 1
+        result = self.results.pop(0) if self.results else one_candle_market_data(symbol, self.name)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+async def test_cache_serves_second_request_without_calling_the_provider(tmp_path):
+    wrapped_provider = CountingProvider()
+    caching_provider = CachingProvider(wrapped_provider, tmp_path)
+    first_result = await caching_provider.fetch("AAPL")
+    second_result = await caching_provider.fetch("AAPL")
+    assert wrapped_provider.fetch_count == 1
+    assert second_result == first_result
+    assert caching_provider.name == "counting"
+    assert (tmp_path / "counting" / "AAPL.json").is_file()
+
+
+async def test_cache_refetches_when_the_entry_is_too_old(tmp_path):
+    stale_retrieval_time = datetime.now(UTC) - timedelta(days=2)
+    wrapped_provider = CountingProvider(
+        results=[one_candle_market_data(retrieved_at=stale_retrieval_time)]
+    )
+    caching_provider = CachingProvider(wrapped_provider, tmp_path, timedelta(hours=1))
+    await caching_provider.fetch("AAPL")
+    await caching_provider.fetch("AAPL")
+    assert wrapped_provider.fetch_count == 2
+
+
+async def test_cache_never_stores_failures(tmp_path):
+    failed_result = MarketData(symbol="AAPL", source="counting", errors=["quota"])
+    wrapped_provider = CountingProvider(results=[failed_result])
+    caching_provider = CachingProvider(wrapped_provider, tmp_path)
+    assert (await caching_provider.fetch("AAPL")).errors == ["quota"]
+    assert (await caching_provider.fetch("AAPL")).candles
+    assert wrapped_provider.fetch_count == 2
+
+
+async def test_cache_ignores_corrupt_and_mismatched_entries(tmp_path):
+    wrapped_provider = CountingProvider()
+    caching_provider = CachingProvider(wrapped_provider, tmp_path)
+    cache_folder = tmp_path / "counting"
+    cache_folder.mkdir()
+    (cache_folder / "AAPL.json").write_text("{not json")
+    (cache_folder / "MSFT.json").write_text(one_candle_market_data("AAPL").model_dump_json())
+    await caching_provider.fetch("AAPL")
+    await caching_provider.fetch("MSFT")
+    assert wrapped_provider.fetch_count == 2
+
+
+async def test_fallback_returns_first_usable_result_and_skips_failures():
+    raising_provider = CountingProvider("primary", [RuntimeError("https://host/?apikey=SECRET")])
+    empty_provider = CountingProvider(
+        "secondary", [MarketData(symbol="AAPL", source="secondary", errors=["quota"])]
+    )
+    working_provider = CountingProvider("tertiary")
+    unused_provider = CountingProvider("unused")
+    fallback_provider = FallbackProvider(
+        [raising_provider, empty_provider, working_provider, unused_provider]
+    )
+    market_data = await fallback_provider.fetch("AAPL")
+    assert market_data.source == "tertiary"
+    assert unused_provider.fetch_count == 0
+
+
+async def test_fallback_reports_every_failure_without_leaking_exception_text():
+    raising_provider = CountingProvider("primary", [RuntimeError("https://host/?apikey=SECRET")])
+    empty_provider = CountingProvider("secondary", [MarketData(symbol="AAPL", source="secondary")])
+    market_data = await FallbackProvider([raising_provider, empty_provider]).fetch("AAPL")
+    assert market_data.source == "fallback(primary,secondary)"
+    assert market_data.candles == []
+    assert market_data.errors == ["primary: RuntimeError", "secondary: returned no candles"]
+    assert "SECRET" not in market_data.model_dump_json()
+
+
+def test_fallback_requires_at_least_one_provider():
+    with pytest.raises(ValueError):
+        FallbackProvider([])
