@@ -15,7 +15,7 @@
   "dependencies": {
     "@fontsource/ibm-plex-mono": "5.3.0",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
@@ -24,7 +24,7 @@
     "@testing-library/user-event": "14.6.12",
     "@types/node": "20.19.43",
     "@types/react": "18.3.31",
-    "@types/react-dom": "18.3.7",
+    "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "4.7.0",
     "@vitest/coverage-v8": "4.1.12",
     "jsdom": "25.0.1",
