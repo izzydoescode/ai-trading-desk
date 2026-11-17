@@ -4,13 +4,13 @@ What is planned and not yet built, in rough order. Costs are estimates with thei
 
 ## Next
 
-### Trade review: dashboard and weekly report
+### Trade review: what is left
 
-The records now exist (see "Trade records" in `CLAUDE.md`): every closed trade with its strategy, plan, holding time and excursions, and the full six-agent report behind each decision. Nothing reads them yet.
+The review page (F9 REVIEW in the terminal) and the weekly report (`desk report`) are built; see "Reviewing trades" in `CLAUDE.md`.
 
-- **Review page in the terminal.** A trades table that opens to the saved decision report, plus breakdowns by strategy, symbol, exit reason and holding time; average win and loss in dollars and R; excursion scatter (how far winners and losers travelled before they closed).
-- **Weekly report.** A `desk report --week` command that writes one Markdown page from the same queries: trades taken, results by strategy, biggest win and loss, what was rejected and why, and the model spend for the week.
-- Cost: none beyond build time. Both read the local journal.
+- The review page covers the current run only. Browsing earlier runs from the journal is not built.
+- Model spend is logged but not journalled, so the weekly report cannot total it. Recording each metered call in the journal would fix that.
+- Cost: none. Both read local records.
 
 ### Decide when shorts are allowed
 
