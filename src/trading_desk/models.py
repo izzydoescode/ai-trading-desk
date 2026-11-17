@@ -248,12 +248,17 @@ class SentimentReport(Model):
 
 
 class RiskLimits(Model):
-    """Hard limits ODIN enforces. Defaults follow the guide's beginner rules."""
+    """Hard limits ODIN enforces.
+
+    Defaults risk 1% of equity per idea and require the trade to still pay at
+    least 2.75 times its risk once slippage and commission are counted, which is
+    the floor under NEO's 3-to-1 target.
+    """
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
 
-    max_loss_per_idea_fraction: float = Field(default=0.0025, gt=0, le=0.05)
-    minimum_reward_to_risk: float = Field(default=2.0, gt=0)
+    max_loss_per_idea_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    minimum_reward_to_risk: float = Field(default=2.75, gt=0)
     maximum_open_ideas: int = Field(default=1, ge=1)
     maximum_daily_loss_fraction: float = Field(default=0.01, gt=0, le=0.2)
     maximum_position_fraction: float = Field(default=0.2, gt=0, le=1)

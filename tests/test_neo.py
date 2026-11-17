@@ -25,7 +25,7 @@ def test_bullish_trend_gets_atr_stop_and_reward_multiple_target():
     assert setup.thesis.classification is Classification.BULLISH
     assert setup.entry_reference == 110.0
     assert setup.stop == pytest.approx(106.0)
-    assert setup.target == pytest.approx(120.0)
+    assert setup.target == pytest.approx(122.0)
     assert setup.support == 99.0
     assert setup.resistance == 111.0
     assert "106.0000" in setup.invalidation

@@ -51,7 +51,7 @@ async def test_clean_trend_produces_an_approved_sized_trade():
     assert report.risk.verdict is RiskVerdict.APPROVE
     assert report.decision.action is DecisionAction.TRADE
     assert report.decision.plan == report.risk.plan
-    assert report.decision.plan.risk_amount <= 250.0
+    assert report.decision.plan.risk_amount <= 1000.0
     assert {entry.agent for entry in report.trace} == EXPECTED_AGENTS
     assert all(entry.run_id == report.run_id for entry in report.trace)
     assert DeskReport.model_validate_json(report.model_dump_json()) == report
