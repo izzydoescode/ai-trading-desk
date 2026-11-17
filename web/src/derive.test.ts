@@ -132,7 +132,15 @@ describe("agent cards", () => {
     const cards = Object.fromEntries(agentCards(desk, "AAPL").map((card) => [card.name, card]));
     expect(cards.HAWKEYE).toMatchObject({ status: "DONE", metricValue: "AAPL 0.82" });
     expect(cards.HAWKEYE!.line).toBe("Ranked 1 symbol: 1 watch, 0 skip, 0 need data.");
-    expect(cards.NEO).toMatchObject({ status: "DONE", metricValue: "UP" });
+    expect(cards.NEO).toMatchObject({ status: "DONE", metricLabel: "TREND", metricValue: "UP" });
+    desk.reports_by_symbol = {
+      AAPL: reportWith((report) => (report.chart.strategy = "BOLLINGER_REVERSION")),
+    };
+    expect(agentCards(desk, "AAPL")[1]).toMatchObject({
+      metricLabel: "SETUP",
+      metricValue: "BOLLINGER",
+    });
+    desk.reports_by_symbol = { AAPL: tradeReport() };
     expect(cards.NEO!.line).toContain("invalidates");
     expect(cards.SNOWDEN).toMatchObject({ status: "ABSTAIN", tone: "dim", metricValue: "–" });
     expect(cards.FAMA).toMatchObject({ status: "ABSTAIN", metricValue: "–" });

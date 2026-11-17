@@ -37,6 +37,12 @@ export interface AgentCard {
   speech: string;
 }
 
+export const STRATEGY_WORDS = {
+  BREAKOUT: "BREAKOUT",
+  TREND_CONTINUATION: "TREND",
+  BOLLINGER_REVERSION: "BOLLINGER",
+} as const;
+
 const TREND_WORDS: Record<Classification, string> = {
   BULLISH: "UP",
   BEARISH: "DOWN",
@@ -184,8 +190,10 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
       status: report.chart.thesis.abstain ? "ABSTAIN" : "DONE",
       tone: report.chart.thesis.abstain ? "dim" : "up",
       line: report.chart.stop === null ? report.chart.confirmation : report.chart.invalidation,
-      metricLabel: "TREND",
-      metricValue: TREND_WORDS[report.chart.thesis.classification],
+      metricLabel: report.chart.strategy ? "SETUP" : "TREND",
+      metricValue: report.chart.strategy
+        ? STRATEGY_WORDS[report.chart.strategy]
+        : TREND_WORDS[report.chart.thesis.classification],
     },
     {
       name: "SNOWDEN",
