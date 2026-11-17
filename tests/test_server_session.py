@@ -186,6 +186,7 @@ async def test_kill_switch_engaged_before_the_run_means_no_ideas_at_all():
     await desk_session.start(replay_settings())
     await desk_session.wait_until_finished()
     assert desk_session.snapshot()["kill_switch_engaged"] is True
+    assert [event["kind"] for event in desk_session.recent_events] == ["HALT"]
     assert desk_session.reports_by_symbol == {}
     assert desk_session.venue.closed_trades == []
     assert desk_session.venue.equity == 100_000.0
