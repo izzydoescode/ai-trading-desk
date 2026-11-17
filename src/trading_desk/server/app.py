@@ -27,6 +27,7 @@ from trading_desk.backtest.runner import run_backtest
 from trading_desk.graph import SYMBOL_PATTERN
 from trading_desk.models import Model
 from trading_desk.observability import get_logger
+from trading_desk.review import review_trades
 from trading_desk.server.session import (
     MAXIMUM_BARS_PER_SECOND,
     DeskSession,
@@ -269,6 +270,40 @@ def create_app(
                 status_code=422, detail="The backtest window is invalid"
             ) from window_error
         return backtest_report.model_dump(mode="json")
+
+    def current_trades_and_saved_decisions() -> tuple[list, dict[int, dict]]:
+        """The current run's closed trades and, by position, the saved decision behind each."""
+        closed_trades = list(session.venue.closed_trades) if session.venue else []
+        saved_decisions: dict[int, dict] = {}
+        if session.journal is not None and session.run_id is not None:
+            for trade_number, closed_trade in enumerate(closed_trades):
+                saved_decision = session.journal.decision_for_trade(session.run_id, closed_trade)
+                if saved_decision is not None:
+                    saved_decisions[trade_number] = saved_decision
+        return closed_trades, saved_decisions
+
+    @app.get("/api/review")
+    async def review() -> dict:
+        """GET /api/review: results of the current run's closed trades, broken down by strategy,
+        symbol, side, exit reason and holding time, with each trade's excursions.
+        """
+        closed_trades, saved_decisions = current_trades_and_saved_decisions()
+        return {
+            "run_id": session.run_id,
+            "review": review_trades(closed_trades, frozenset(saved_decisions)).model_dump(
+                mode="json"
+            ),
+        }
+
+    @app.get("/api/review/trades/{trade_number}/decision")
+    async def trade_decision(trade_number: int) -> dict:
+        """GET /api/review/trades/N/decision: the six-agent report saved when trade N (0-based)
+        was approved. 404 when there is no such trade or no report was kept for it.
+        """
+        _, saved_decisions = current_trades_and_saved_decisions()
+        if trade_number not in saved_decisions:
+            raise HTTPException(status_code=404, detail="No saved decision for that trade")
+        return saved_decisions[trade_number]
 
     @app.websocket("/ws/events")
     async def stream_events(websocket: WebSocket) -> None:
