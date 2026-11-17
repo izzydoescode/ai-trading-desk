@@ -100,6 +100,21 @@ def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
     return FixtureProvider(args.scenario)
 
 
+def anthropic_credentials_available() -> bool:
+    """True when the Anthropic SDK can authenticate on this machine.
+
+    Either an API key is in the environment, or the user has signed in with the
+    `ant` command-line tool and the SDK can load that profile. The credential
+    itself is never read here.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+    try:
+        return anthropic.default_credentials() is not None
+    except anthropic.CredentialsError:
+        return False
+
+
 def build_reasoning_provider(
     args, client: httpx.AsyncClient, usage_meter: UsageMeter
 ) -> ReasoningProvider | None:
@@ -107,8 +122,11 @@ def build_reasoning_provider(
     if args.provider == "none":
         return None
     if args.provider == "anthropic":
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise ValueError("Set ANTHROPIC_API_KEY in .env or the shell for --provider anthropic")
+        if not anthropic_credentials_available():
+            raise ValueError(
+                "For --provider anthropic, set ANTHROPIC_API_KEY in .env or the shell, "
+                "or sign in with `ant auth login`"
+            )
         provider: ReasoningProvider = AnthropicProvider(
             anthropic.AsyncAnthropic(),
             os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
