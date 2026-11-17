@@ -11,6 +11,17 @@ import httpx
 from trading_desk.models import Candle, MarketData
 
 
+class IntradayBarsProvider(Protocol):
+    """Minute bars for one session, used only to order a stop and a target that one daily bar
+    touched together. An empty list means "no intraday data": the venue then keeps its
+    worst-case assumption.
+    """
+
+    name: str
+
+    async def fetch_session(self, symbol: str, daily_bar_time: datetime) -> list[Candle]: ...
+
+
 class MarketDataProvider(Protocol):
     name: str
 
