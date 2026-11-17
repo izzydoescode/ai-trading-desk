@@ -150,3 +150,109 @@ def test_scenario_flag_is_rejected_for_external_data(monkeypatch, capsys):
         )
     assert exit_info.value.code == 2
     assert "--scenario applies only to fixture data" in capsys.readouterr().err
+
+
+def test_desk_decide_prints_a_six_agent_report(monkeypatch, capsys):
+    exit_code = run_cli_in_process(
+        monkeypatch, "desk", "decide", "AAPL", "--as-of", HISTORICAL_EVALUATION_TIME
+    )
+    captured = capsys.readouterr()
+    desk_report = json.loads(captured.out)
+    assert exit_code == 0
+    assert desk_report["schema_version"] == "2.0"
+    assert desk_report["decision"]["action"] == "TRADE"
+    assert desk_report["decision"]["plan"] == desk_report["risk"]["plan"]
+    assert "decision=TRADE" in captured.err
+    assert "Paper trading only" in captured.err
+
+
+def test_desk_decide_honours_the_equity_option(monkeypatch, capsys):
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--equity",
+        "1000",
+    )
+    desk_report = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert desk_report["account"]["equity"] == 1000
+    assert desk_report["decision"]["action"] == "REJECT"
+
+
+def test_desk_scan_writes_ranked_reports_to_a_file(monkeypatch, tmp_path, capsys):
+    output_path = tmp_path / "scan.json"
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "scan",
+        "MSFT",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--output",
+        str(output_path),
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert [report["symbol"] for report in json.loads(output_path.read_text())] == ["AAPL", "MSFT"]
+    assert "MSFT: scout=NEED_MORE_DATA" in captured.err
+
+
+def test_desk_scan_defaults_to_the_market_watchlist(monkeypatch, capsys):
+    exit_code = run_cli_in_process(
+        monkeypatch, "desk", "scan", "--as-of", HISTORICAL_EVALUATION_TIME
+    )
+    assert exit_code == 0
+    assert len(json.loads(capsys.readouterr().out)) == 10
+
+
+def test_desk_reads_history_from_a_csv_folder(monkeypatch, tmp_path, capsys):
+    rows = ["Date,Open,High,Low,Close,Volume"]
+    rows += [
+        f"2025-03-{day:02d},{100 + day},{101 + day},{99 + day},{100 + day},1000"
+        for day in range(1, 11)
+    ]
+    (tmp_path / "AAPL.csv").write_text("\n".join(rows) + "\n")
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--source",
+        "csv",
+        "--csv-dir",
+        str(tmp_path),
+        "--as-of",
+        "2025-03-11T00:00:00Z",
+    )
+    desk_report = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert desk_report["data"]["source"] == "local-csv-daily"
+    assert desk_report["indicators"]["candle_count"] == 10
+    assert desk_report["decision"]["action"] == "REJECT"
+
+
+def test_csv_source_requires_a_folder(monkeypatch, capsys):
+    exit_code = run_cli_in_process(monkeypatch, "desk", "decide", "AAPL", "--source", "csv")
+    assert exit_code == 2
+    assert "--csv-dir" in capsys.readouterr().err
+
+
+def test_desk_reports_unwritable_output(monkeypatch, tmp_path, capsys):
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--output",
+        str(tmp_path / "missing-folder" / "report.json"),
+    )
+    assert exit_code == 2
+    assert "Could not write report output" in capsys.readouterr().err
