@@ -45,6 +45,17 @@ uv run trading-desk analyze AAPL --scenario missing  --as-of 2025-04-23T22:00:00
 uv run trading-desk desk serve            # http://127.0.0.1:8000, see /docs for the endpoints
 ```
 
+```bash
+# Terminal UI (web/): React + TypeScript + Vite
+npm --prefix web ci
+npm --prefix web run dev            # http://127.0.0.1:5173, proxies /api and /ws to desk serve on :8000
+npm --prefix web run typecheck
+npm --prefix web run test:coverage  # Vitest, 80% gate on lines, branches, functions, statements
+npm --prefix web run build          # writes web/dist; `desk serve` then serves it at /
+```
+
+`.github/workflows/web.yml` runs `npm ci`, typecheck, tests with coverage, build and `npm audit` for `web/`.
+
 CI (`.github/workflows/ci.yml`) runs exactly: `uv sync --locked`, pytest, `ruff check`, `ruff format --check`, and the `missing` scenario smoke run, on Python 3.11–3.14. Run all four before considering a change done.
 
 Things that look like bugs but are not:
@@ -103,6 +114,10 @@ Both adapters share a pattern: three attempts with exponential backoff for trans
 `DeskSession` (`server/session.py`) owns one paper venue and at most one replay. It runs the same `run_engine` loop as the backtest and uses the engine's `on_bar` hook only to pace, pause and publish; it cannot change a decision. `create_app()` (`server/app.py`) exposes it over HTTP (`/api/state`, `/api/replay/*`, `/api/kill-switch`, `/api/mode`, `/api/backtest`) and a WebSocket (`/ws/events`: one snapshot, then `bar`, `event`, `account` and `status` messages).
 
 There is no login, so keep these properties: `desk serve` refuses any non-loopback `--host`; writes and WebSocket connections carrying a non-local `Origin` are refused; the out-of-sample window is never evaluated through the API; `live` mode answers 501. Tests drive the app in-process with `fastapi.testclient.TestClient` and inject the pacing sleep.
+
+### Terminal UI (`web/`)
+
+One page, no router. `api.ts` is the only file that talks to the server; `state.ts` is a pure reducer that folds the WebSocket messages (`snapshot`, `bar`, `event`, `account`, `status`) into one snapshot-shaped object; `derive.ts` turns that into what each panel shows; `components/` only render. Server field names are kept as-is (`types.ts`), so there is no mapping layer to drift. The chart is hand-drawn SVG, not a charting library. Tests replay real server output captured in `web/src/test/fixtures/` (regenerate by running a fixture replay through `DeskSession` if the message shapes change). Missing numbers render as a dash, never zero, and every state has a word or glyph as well as a colour.
 
 ### Error and logging hygiene
 
