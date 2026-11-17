@@ -338,6 +338,78 @@ def test_desk_provider_requires_its_key(monkeypatch, capsys, provider, key_name)
     assert captured.out == ""
 
 
+def test_anthropic_credentials_can_come_from_an_api_key(monkeypatch):
+    from trading_desk import cli
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    assert cli.anthropic_credentials_available()
+
+
+def test_anthropic_credentials_can_come_from_an_ant_sign_in(monkeypatch):
+    from trading_desk import cli
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(cli.anthropic, "default_credentials", lambda: object())
+    assert cli.anthropic_credentials_available()
+
+
+def test_anthropic_credentials_are_missing_without_a_key_or_a_sign_in(monkeypatch):
+    from trading_desk import cli
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # conftest points the SDK at a profile folder that does not exist.
+    assert not cli.anthropic_credentials_available()
+    monkeypatch.setattr(cli.anthropic, "default_credentials", lambda: None)
+    assert not cli.anthropic_credentials_available()
+
+
+def test_desk_anthropic_review_runs_on_an_ant_sign_in_without_an_api_key(
+    monkeypatch, tmp_path, capsys
+):
+    from types import SimpleNamespace
+
+    from trading_desk import cli
+    from trading_desk.models import GateVerdict
+
+    review_requests = []
+
+    class FakeMessages:
+        async def parse(self, **request):
+            review_requests.append(request)
+            return SimpleNamespace(
+                parsed_output=GateVerdict(
+                    approve=False, rationale="Evidence is thin.", concerns=[]
+                ),
+                stop_reason="end_turn",
+                usage=SimpleNamespace(input_tokens=1000, output_tokens=100),
+            )
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(cli.anthropic, "default_credentials", lambda: object())
+    monkeypatch.setattr(
+        cli.anthropic, "AsyncAnthropic", lambda: SimpleNamespace(messages=FakeMessages())
+    )
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--provider",
+        "anthropic",
+        "--model-cache-dir",
+        str(tmp_path),
+    )
+    captured = capsys.readouterr()
+    desk_report = json.loads(captured.out)
+    assert exit_code == 0
+    assert len(review_requests) == 1
+    assert review_requests[0]["model"] == "claude-haiku-5-5"
+    assert desk_report["model_review"]["approve"] is False
+    assert desk_report["decision"]["action"] == "WAIT"
+
+
 def test_desk_openai_review_is_metered_and_cached(monkeypatch, tmp_path, capsys):
     import httpx
 
