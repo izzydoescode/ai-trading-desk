@@ -16,3 +16,4 @@ report.md
 htmlcov/
 coverage.xml
 data/
+logs/
