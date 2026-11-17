@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from trading_desk.graph import run_research
+from trading_desk.markets import US_EQUITIES
 from trading_desk.models import Classification, MarketData, Report
 from trading_desk.tools.market_data import FixtureProvider
 
@@ -122,3 +123,31 @@ async def test_numeric_overflow_fails_closed_with_source_preserved():
     assert len(r.data.candles) == 80
     assert r.indicators.sma50 is None
     assert any("Indicator calculation rejected" in x for x in r.limitations)
+
+
+async def test_quality_gates_follow_the_market_profile():
+    lenient_profile = US_EQUITIES.model_copy(
+        update={"minimum_history_candles": 5, "maximum_data_age": timedelta(days=30)}
+    )
+    default_report = await run_research(
+        "AAPL", FixtureProvider("missing"), as_of=AS_OF + timedelta(days=10)
+    )
+    lenient_report = await run_research(
+        "AAPL",
+        FixtureProvider("missing"),
+        as_of=AS_OF + timedelta(days=10),
+        market_profile=lenient_profile,
+    )
+    assert any("Need 50 valid candles" in text for text in default_report.limitations)
+    assert any("Stale" in text for text in default_report.limitations)
+    assert not any("valid candles" in text for text in lenient_report.limitations)
+    assert not any("Stale" in text for text in lenient_report.limitations)
+
+
+async def test_gap_blocker_reports_the_profile_limit():
+    strict_profile = US_EQUITIES.model_copy(update={"maximum_candle_gap": timedelta(days=1)})
+    report = await run_research(
+        "AAPL", FixtureProvider(), as_of=AS_OF, market_profile=strict_profile
+    )
+    assert report.abstained
+    assert any("gap longer than 1 calendar days" in text for text in report.limitations)
