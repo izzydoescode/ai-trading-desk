@@ -34,6 +34,8 @@ class MarketProfile(Model):
     # Trading conventions.
     trades_around_the_clock: bool
     allows_fractional_units: bool
+    # Sessions per year, used to annualise daily statistics.
+    trading_periods_per_year: int = Field(default=252, ge=1)
     # Costs, as fractions of traded notional (0.0005 = 5 basis points).
     commission_rate: float = Field(ge=0, lt=1)
     slippage_rate: float = Field(ge=0, lt=1)
