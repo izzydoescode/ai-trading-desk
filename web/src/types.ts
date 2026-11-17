@@ -38,6 +38,9 @@ export interface TradePlan {
   side: string;
   strategy: TradeSetup["strategy"];
   target_follows_upper_band: boolean;
+  /** Early-exit rule the trade is held under; null means it is held to its stop. */
+  stalled_trade_sessions?: number | null;
+  stalled_trade_progress_r?: number;
   entry_reference: number;
   stop: number;
   target: number;

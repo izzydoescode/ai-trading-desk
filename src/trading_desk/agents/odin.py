@@ -145,6 +145,8 @@ def evaluate(
                 side=TradeSide.LONG,
                 strategy=setup.strategy,
                 target_follows_upper_band=setup.target_follows_upper_band,
+                stalled_trade_sessions=limits.stalled_trade_sessions,
+                stalled_trade_progress_r=limits.stalled_trade_progress_r,
                 entry_reference=entry_reference,
                 stop=stop,
                 target=target,
