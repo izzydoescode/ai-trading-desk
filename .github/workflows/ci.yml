@@ -10,12 +10,12 @@ jobs:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           version: '0.13.6'
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
-      - run: uv run pytest -q
+      - run: uv run pytest -q --cov --cov-report=term-missing
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run trading-desk analyze AAPL --scenario missing --as-of 2025-04-23T22:00:00Z

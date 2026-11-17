@@ -11,3 +11,7 @@ dist/
 report.json
 report.md
 .DS_Store
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
