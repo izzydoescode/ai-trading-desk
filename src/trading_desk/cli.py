@@ -74,6 +74,8 @@ FIXTURE_REPLAY_START = datetime(2025, 1, 2, tzinfo=UTC)
 FIXTURE_REPLAY_END = datetime(2025, 4, 23, 22, tzinfo=UTC)
 FIXTURE_SYMBOLS = ["AAPL"]
 DEFAULT_UI_DIRECTORY = Path("web/dist")
+# Every replay is kept by default so trades can be reviewed later. data/ is git-ignored.
+DEFAULT_JOURNAL_FILE = Path("data/journal.sqlite")
 
 
 def markdown(report: Report) -> str:
@@ -262,18 +264,27 @@ async def execute_backtest(args) -> BacktestReport:
     """Run the backtest described by the command-line arguments and return its report."""
     start = parse_evaluation_time(args.start)
     end = parse_evaluation_time(args.end) or datetime.now(UTC)
-    async with httpx.AsyncClient() as client:
-        return await run_backtest(
-            args.symbols or list(US_EQUITIES.default_watchlist),
-            build_data_provider(args, client),
-            start=start,
-            end=end,
-            split=parse_evaluation_time(args.split),
-            evaluate_out_of_sample=args.evaluate_out_of_sample,
-            holdout_ledger=HoldoutLedger(args.holdout_ledger),
-            allow_holdout_reuse=args.allow_holdout_reuse,
-            starting_cash=args.equity,
-        )
+    journal = None
+    if args.journal is not None:
+        args.journal.parent.mkdir(parents=True, exist_ok=True)
+        journal = Journal(args.journal)
+    try:
+        async with httpx.AsyncClient() as client:
+            return await run_backtest(
+                args.symbols or list(US_EQUITIES.default_watchlist),
+                build_data_provider(args, client),
+                start=start,
+                end=end,
+                split=parse_evaluation_time(args.split),
+                evaluate_out_of_sample=args.evaluate_out_of_sample,
+                holdout_ledger=HoldoutLedger(args.holdout_ledger),
+                allow_holdout_reuse=args.allow_holdout_reuse,
+                starting_cash=args.equity,
+                journal=journal,
+            )
+    finally:
+        if journal is not None:
+            journal.close()
 
 
 def build_replay_settings(args) -> ReplaySettings:
@@ -312,9 +323,11 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
     uvicorn. On shutdown it closes the journal and prints the metered model cost.
     """
     journal = None
-    if args.journal is not None:
-        args.journal.parent.mkdir(parents=True, exist_ok=True)
-        journal = Journal(args.journal)
+    if not args.no_journal:
+        journal_path = args.journal or DEFAULT_JOURNAL_FILE
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        journal = Journal(journal_path)
+        logger.info("Journal open path=%s", journal_path)
     async with httpx.AsyncClient() as client:
         usage_meter = UsageMeter(args.max_model_cost)
         news_feed = build_news_feed(args, client)
@@ -393,11 +406,16 @@ def describe_metrics(label: str, metrics) -> str:
     def number(value: float | None) -> str:
         return "n/a" if value is None else f"{value:.2f}"
 
+    def dollars(value: float | None) -> str:
+        return "n/a" if value is None else f"${value:,.2f}"
+
     return (
         f"{label}: return {percent(metrics.total_return)} vs {metrics.benchmark_symbol} "
         f"{percent(metrics.benchmark_return)}; max drawdown {percent(metrics.max_drawdown)}; "
         f"trades {metrics.trade_count}; win rate {percent(metrics.win_rate)}; "
-        f"profit factor {number(metrics.profit_factor)}; Sharpe {number(metrics.sharpe_ratio)}"
+        f"profit factor {number(metrics.profit_factor)}; Sharpe {number(metrics.sharpe_ratio)}; "
+        f"average win {dollars(metrics.average_win_amount)}; "
+        f"average loss {dollars(metrics.average_loss_amount)}"
     )
 
 
@@ -464,6 +482,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Permit a repeated out-of-sample look (recorded as contaminated)",
     )
     backtest.add_argument("--holdout-ledger", type=Path, default=DEFAULT_HOLDOUT_LEDGER)
+    backtest.add_argument(
+        "--journal",
+        type=Path,
+        help="SQLite file to keep every event, trade and trade decision of this backtest",
+    )
     serve = desk_commands.add_parser(
         "serve", help="Local API server for the terminal (replay, paper venue only)"
     )
@@ -475,7 +498,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--host", default="127.0.0.1", help="Loopback address to listen on")
     serve.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT)
-    serve.add_argument("--journal", type=Path, help="SQLite journal file (default: not kept)")
+    serve.add_argument(
+        "--journal",
+        type=Path,
+        help="SQLite file that keeps every event, trade and trade decision "
+        "(default: data/journal.sqlite)",
+    )
+    serve.add_argument("--no-journal", action="store_true", help="Keep nothing on disk")
     serve.add_argument(
         "--ui-dir", type=Path, help="Built terminal to serve (default: web/dist if present)"
     )

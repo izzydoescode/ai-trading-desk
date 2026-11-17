@@ -355,3 +355,24 @@ async def test_bollinger_trade_enters_at_the_lower_band_and_exits_at_the_moving_
     assert upper_band_before_exit != pytest.approx(upper_band_at_entry, abs=0.01)
     # And it never used a band that included the exit day's own close.
     assert exit_candle.high >= upper_band_before_exit
+
+
+async def test_every_trade_taken_has_its_decision_report_and_its_record_in_the_journal():
+    """Verifies: a run with a journal keeps, for each trade, the full report that justified
+    it and the closed-trade record with strategy and excursions.
+    """
+    journal = Journal()
+    result, _ = await run(journal=journal)
+    saved_decisions = journal.decisions(result.run_id)
+    trade_events = events_of(result, "TRADE")
+    assert len(saved_decisions) == len(trade_events) >= 1
+    assert [decision["evaluated_as_of"] for decision in saved_decisions] == [
+        event.timestamp.isoformat().replace("+00:00", "Z") for event in trade_events
+    ]
+    assert all(decision["decision"]["action"] == "TRADE" for decision in saved_decisions)
+    saved_trades = journal.trades(result.run_id)
+    assert saved_trades == result.closed_trades
+    assert saved_trades[0].strategy.value == "TREND_CONTINUATION"
+    assert saved_trades[0].bars_held > 0
+    assert saved_trades[0].maximum_favorable_excursion_r >= saved_trades[0].r_multiple > 0
+    assert journal.run_ids() == [result.run_id]

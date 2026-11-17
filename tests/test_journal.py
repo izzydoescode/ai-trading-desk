@@ -28,11 +28,18 @@ def make_closed_trade(profit_and_loss=100.0):
     """Test helper (not a test): builds closed trade for the tests below."""
     return ClosedTrade(
         symbol="AAPL",
+        strategy="BREAKOUT",
         units=10,
         entry_price=100.0,
         exit_price=110.0,
+        planned_stop=95.0,
+        planned_target=110.0,
+        planned_risk_amount=50.0,
         opened_at=START,
         closed_at=START + timedelta(days=2),
+        bars_held=2,
+        maximum_favorable_excursion_r=2.0,
+        maximum_adverse_excursion_r=-0.4,
         exit_reason=ExitReason.TARGET,
         total_cost=0.0,
         profit_and_loss=profit_and_loss,
@@ -105,3 +112,44 @@ def test_duplicate_sequence_in_one_run_is_rejected():
     journal.record_event(make_desk_event(0))
     with pytest.raises(Exception, match="UNIQUE"):
         journal.record_event(make_desk_event(0))
+
+
+async def test_the_full_report_behind_a_trade_decision_is_kept_and_read_back():
+    """Verifies: the journal stores the whole six-agent report for a trade (indicators, each
+    agent's view, risk checks, plan) without the raw bars, and returns it for its run only.
+    """
+    from trading_desk.desk import run_desk_decision
+    from trading_desk.models import AccountSnapshot
+    from trading_desk.tools.market_data import FixtureProvider
+
+    desk_report = await run_desk_decision(
+        "AAPL",
+        FixtureProvider(),
+        AccountSnapshot(equity=100_000.0, cash=100_000.0),
+        datetime(2025, 4, 23, 22, tzinfo=UTC),
+    )
+    journal = Journal()
+    journal.record_decision("run-1", desk_report)
+    journal.record_decision("run-1", desk_report)  # recording twice keeps one row
+    (saved_report,) = journal.decisions("run-1")
+    assert saved_report["symbol"] == "AAPL"
+    assert saved_report["decision"]["plan"]["strategy"] == "TREND_CONTINUATION"
+    assert saved_report["indicators"]["close"] == desk_report.indicators.close
+    assert len(saved_report["risk"]["checks"]) == 9
+    assert saved_report["chart"]["trend"] == "BULLISH"
+    assert "data" not in saved_report
+    assert journal.decisions("run-2") == []
+
+
+def test_run_ids_list_every_run_oldest_first():
+    """Verifies: the journal can list its runs, which is how a review picks one to open."""
+    journal = Journal()
+    assert journal.run_ids() == []
+    journal.record_event(
+        make_desk_event(0, run_id="later-run").model_copy(
+            update={"timestamp": START + timedelta(days=5)}
+        )
+    )
+    journal.record_event(make_desk_event(0, run_id="earlier-run"))
+    journal.record_event(make_desk_event(1, run_id="earlier-run"))
+    assert journal.run_ids() == ["earlier-run", "later-run"]

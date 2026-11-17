@@ -27,6 +27,7 @@ def isolated_logging(monkeypatch, tmp_path):
     from trading_desk.observability import LOGGER_NAME
 
     monkeypatch.setattr(cli, "DEFAULT_SERVER_LOG_FILE", tmp_path / "logs" / "trading-desk.log")
+    monkeypatch.setattr(cli, "DEFAULT_JOURNAL_FILE", tmp_path / "data" / "journal.sqlite")
     yield
     desk_logger = logging.getLogger(LOGGER_NAME)
     for handler in list(desk_logger.handlers):

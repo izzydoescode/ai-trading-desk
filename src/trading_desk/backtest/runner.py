@@ -22,6 +22,7 @@ from trading_desk.desk import DEFAULT_RISK_LIMITS
 from trading_desk.engine import run_engine
 from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import Model, RiskLimits
+from trading_desk.paper.journal import Journal
 from trading_desk.paper.venue import PaperVenue
 from trading_desk.tools.historical_data import preload_history
 from trading_desk.tools.market_data import MarketDataProvider
@@ -133,6 +134,7 @@ async def run_backtest(
     market_profile: MarketProfile = US_EQUITIES,
     limits: RiskLimits = DEFAULT_RISK_LIMITS,
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
+    journal: Journal | None = None,
 ) -> BacktestReport:
     """Score the desk over `[start, split)` and, only when asked, over `[split, end]`."""
     if split is not None and not (start < split <= end):
@@ -157,6 +159,7 @@ async def run_backtest(
     benchmark_history = await preloaded_provider.fetch(market_profile.benchmark_symbol)
 
     async def score_window(window_start: datetime, window_end: datetime) -> PerformanceMetrics:
+        """Run the desk over one window with a fresh paper account and score it."""
         engine_result = await run_engine(
             symbols,
             preloaded_provider,
@@ -166,6 +169,7 @@ async def run_backtest(
             market_profile=market_profile,
             limits=limits,
             setup_rules=setup_rules,
+            journal=journal,
         )
         return compute_metrics(engine_result, market_profile, benchmark_history.candles)
 

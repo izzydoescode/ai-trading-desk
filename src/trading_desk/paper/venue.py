@@ -144,6 +144,15 @@ class PaperVenue:
             exit_event = self._check_exit(position, candle, position_opened_this_bar)
             if exit_event is not None:
                 events.append(exit_event)
+            else:
+                # Still open after this bar: count it and remember how far price travelled.
+                self.positions[symbol] = position.model_copy(
+                    update={
+                        "bars_held": position.bars_held + 1,
+                        "highest_price": max(position.highest_price, candle.high),
+                        "lowest_price": min(position.lowest_price, candle.low),
+                    }
+                )
         self._last_prices[symbol] = candle.close
         return events
 
@@ -181,6 +190,9 @@ class PaperVenue:
             planned_risk_amount=plan.risk_amount,
             strategy=plan.strategy,
             target_follows_upper_band=plan.target_follows_upper_band,
+            planned_target=plan.target,
+            highest_price=fill_price,
+            lowest_price=fill_price,
         )
         return self._event(
             VenueEventKind.FILL,
@@ -234,14 +246,30 @@ class PaperVenue:
             + exit_slippage_cost
         )
         del self.positions[position.symbol]
+        # The exit itself is part of the journey: a stop extends the worst point, a target
+        # the best. Excursions are measured from the entry, in units of the planned risk.
+        highest_price = max(position.highest_price, reference_price)
+        lowest_price = min(position.lowest_price, reference_price)
+        risk_per_unit = position.planned_risk_amount / position.units
         self.closed_trades.append(
             ClosedTrade(
                 symbol=position.symbol,
+                strategy=position.strategy,
                 units=position.units,
                 entry_price=position.entry_price,
                 exit_price=exit_price,
+                planned_stop=position.stop,
+                planned_target=position.planned_target,
+                planned_risk_amount=position.planned_risk_amount,
                 opened_at=position.opened_at,
                 closed_at=closed_at,
+                bars_held=position.bars_held,
+                maximum_favorable_excursion_r=round(
+                    max(highest_price - position.entry_price, 0.0) / risk_per_unit, 4
+                ),
+                maximum_adverse_excursion_r=round(
+                    min(lowest_price - position.entry_price, 0.0) / risk_per_unit, 4
+                ),
                 exit_reason=reason,
                 total_cost=round(total_cost, MONEY_DECIMAL_PLACES),
                 profit_and_loss=profit_and_loss,

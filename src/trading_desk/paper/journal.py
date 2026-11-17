@@ -9,7 +9,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from trading_desk.models import ClosedTrade, DeskEvent
+from trading_desk.models import ClosedTrade, DeskEvent, DeskReport
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS desk_events (
@@ -22,6 +22,13 @@ CREATE TABLE IF NOT EXISTS desk_events (
     reason TEXT NOT NULL,
     detail_json TEXT NOT NULL,
     PRIMARY KEY (run_id, sequence)
+);
+CREATE TABLE IF NOT EXISTS trade_decisions (
+    run_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    decided_at TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, symbol, decided_at)
 );
 CREATE TABLE IF NOT EXISTS closed_trades (
     run_id TEXT NOT NULL,
@@ -71,6 +78,39 @@ class Journal:
             (run_id, trade_number, trade.model_dump_json()),
         )
         self.connection.commit()
+
+    def record_decision(self, run_id: str, desk_report: DeskReport) -> None:
+        """Keep the full six-agent report behind a TRADE decision.
+
+        This is the "why" of a trade: the indicators at the time, each agent's view,
+        every risk check and the plan. The bars themselves are left out; they can be
+        re-read from the data source.
+        """
+        self.connection.execute(
+            "INSERT OR REPLACE INTO trade_decisions VALUES (?, ?, ?, ?)",
+            (
+                run_id,
+                desk_report.symbol,
+                desk_report.evaluated_as_of.isoformat(),
+                desk_report.model_dump_json(exclude={"data"}),
+            ),
+        )
+        self.connection.commit()
+
+    def decisions(self, run_id: str) -> list[dict]:
+        """The saved reports behind every TRADE decision of a run, oldest first."""
+        rows = self.connection.execute(
+            "SELECT report_json FROM trade_decisions WHERE run_id = ? ORDER BY decided_at, symbol",
+            (run_id,),
+        ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def run_ids(self) -> list[str]:
+        """Every run that has recorded at least one event, oldest first."""
+        rows = self.connection.execute(
+            "SELECT run_id FROM desk_events GROUP BY run_id ORDER BY MIN(timestamp), run_id"
+        ).fetchall()
+        return [row[0] for row in rows]
 
     def events(self, run_id: str, limit: int | None = None) -> list[DeskEvent]:
         """Events for a run in order; with `limit`, the most recent ones only."""

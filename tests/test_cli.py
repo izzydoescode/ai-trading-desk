@@ -837,3 +837,49 @@ def test_news_tone_needs_both_a_news_feed_and_a_model(monkeypatch, capsys):
         captured = capsys.readouterr()
         assert exit_code == 2
         assert "--news-tone needs headlines and a model" in captured.err
+
+
+def test_desk_serve_keeps_a_journal_by_default_and_can_be_told_not_to(
+    monkeypatch, fake_uvicorn_server
+):
+    """Verifies: the server records every replay to a journal file unless --no-journal is
+    given, so trades are available for review without remembering a flag.
+    """
+    from trading_desk import cli
+
+    assert run_cli_in_process(monkeypatch, "desk", "serve") == 0
+    assert cli.DEFAULT_JOURNAL_FILE.is_file()
+    cli.DEFAULT_JOURNAL_FILE.unlink()
+    assert run_cli_in_process(monkeypatch, "desk", "serve", "--no-journal") == 0
+    assert not cli.DEFAULT_JOURNAL_FILE.exists()
+
+
+def test_desk_backtest_can_keep_a_journal_and_reports_dollar_averages(
+    monkeypatch, tmp_path, capsys
+):
+    """Verifies: a backtest run with --journal saves its trades and the decision behind each,
+    and the printed summary includes the average win and loss in dollars.
+    """
+    from trading_desk.paper.journal import Journal
+
+    journal_path = tmp_path / "review" / "backtest.sqlite"
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        *BACKTEST_ARGUMENTS,
+        "--holdout-ledger",
+        str(tmp_path / "ledger.jsonl"),
+        "--journal",
+        str(journal_path),
+    )
+    captured = capsys.readouterr()
+    backtest_report = json.loads(captured.out)
+    assert exit_code == 0
+    assert "average win $" in captured.err and "average loss n/a" in captured.err
+    in_sample = backtest_report["in_sample"]
+    assert in_sample["average_win_amount"] > 0
+    assert in_sample["results_by_strategy"]["TREND_CONTINUATION"]["trade_count"] == 1
+    journal = Journal(journal_path)
+    (run_id,) = journal.run_ids()
+    assert len(journal.trades(run_id)) == 1
+    assert len(journal.decisions(run_id)) == 1
+    journal.close()

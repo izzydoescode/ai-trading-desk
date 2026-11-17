@@ -557,21 +557,42 @@ class Position(Model):
     planned_risk_amount: float = Field(gt=0)
     strategy: SetupStrategy
     target_follows_upper_band: bool = False
+    # Kept for the trade record: the target as planned, and how the trade has behaved.
+    planned_target: float = Field(gt=0)
+    bars_held: int = Field(default=0, ge=0)
+    highest_price: float = Field(gt=0)
+    lowest_price: float = Field(gt=0)
 
 
 class ClosedTrade(Model):
-    """A completed round trip with its result in money and in R (multiples of planned risk)."""
+    """A completed round trip, with everything needed to review it later.
+
+    The result is in money and in R (multiples of the planned risk). The plan is
+    kept beside the outcome: which strategy it was, where the stop and target were
+    set, how much was risked. The excursions say how far the trade went for and
+    against the desk while it was open, which is what tells a stop that was too
+    tight from an entry that was simply wrong.
+    """
 
     symbol: str
+    strategy: SetupStrategy
     units: float = Field(gt=0)
     entry_price: float = Field(gt=0)
     exit_price: float = Field(gt=0)
+    planned_stop: float = Field(gt=0)
+    planned_target: float = Field(gt=0)
+    planned_risk_amount: float = Field(gt=0)
     opened_at: AwareDatetime
     closed_at: AwareDatetime
+    bars_held: int = Field(ge=0)
     exit_reason: ExitReason
     total_cost: float = Field(ge=0)
     profit_and_loss: float
     r_multiple: float
+    # Best and worst open result while held, in R. Favourable is never below zero and
+    # adverse never above it.
+    maximum_favorable_excursion_r: float = Field(ge=0)
+    maximum_adverse_excursion_r: float = Field(le=0)
 
 
 class VenueEventKind(StrEnum):
