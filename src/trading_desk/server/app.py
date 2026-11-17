@@ -5,8 +5,9 @@ loopback interface, and every state-changing request and WebSocket connection
 from a browser must come from a page served on this machine. That stops another
 website open in the same browser from steering the desk.
 
-Nothing here can place a real order: the only venue is the paper venue, and the
-"live" mode switch reports that it is not available.
+Nothing here can place a real order: the only venue is the paper venue. "Live"
+mode means live market data (polled prices and newly completed sessions); its
+trades are simulated by the same paper venue as a replay.
 """
 
 import asyncio
@@ -29,6 +30,8 @@ from trading_desk.observability import get_logger
 from trading_desk.server.session import (
     MAXIMUM_BARS_PER_SECOND,
     DeskSession,
+    LiveNotAvailableError,
+    LiveSettings,
     ReplaySettings,
     SessionBusyError,
     SessionNotRunningError,
@@ -70,7 +73,13 @@ class KillSwitchRequest(RequestModel):
 
 
 class ModeRequest(RequestModel):
+    """Switch between replaying history and polling live data. The optional fields apply to
+    live mode and fall back to the server's defaults.
+    """
+
     mode: Literal["replay", "live"]
+    symbols: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    starting_cash: float | None = Field(default=None, gt=0)
 
 
 def normalise_symbols(symbols: list[str]) -> list[str]:
@@ -84,9 +93,15 @@ def create_app(
     session: DeskSession,
     default_settings: ReplaySettings,
     ui_directory: Path | None = None,
+    default_live_settings: LiveSettings | None = None,
 ) -> FastAPI:
     """Build the API. When `ui_directory` holds a built terminal (`web/dist`), it is
-    served at `/` so one process runs the whole desk."""
+    served at `/` so one process runs the whole desk. `default_live_settings` sets the
+    polling intervals for live mode; without it live mode uses the replay's symbols and cash.
+    """
+    live_defaults = default_live_settings or LiveSettings(
+        symbols=default_settings.symbols, starting_cash=default_settings.starting_cash
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -126,7 +141,7 @@ def create_app(
 
     @app.get("/api/health")
     async def health() -> dict:
-        return {"status": "ok", "venue": "paper", "mode": "replay"}
+        return {"status": "ok", "venue": "paper", "mode": session.mode}
 
     @app.get("/api/state")
     async def state() -> dict:
@@ -194,12 +209,35 @@ def create_app(
 
     @app.post("/api/mode")
     async def set_mode(request: ModeRequest) -> dict:
-        if request.mode == "live":
+        """POST /api/mode: "live" starts live polling with a fresh paper account; "replay"
+        stops live polling and returns the desk to replay. 409 while a replay is running, 501
+        when the data source has no live prices, 422 for an invalid symbol.
+        """
+        if request.mode == "replay":
+            if session.mode == "live":
+                await session.stop()
+            if session.is_active:
+                raise HTTPException(status_code=409, detail="Stop the running replay first")
+            session.use_replay_mode()
+            return status_response()
+        requested_fields = request.model_dump(exclude_none=True, exclude={"mode"})
+        if "symbols" in requested_fields:
+            requested_fields["symbols"] = normalise_symbols(requested_fields["symbols"])
+        live_settings = LiveSettings.model_validate(
+            {**live_defaults.model_dump(), **requested_fields}
+        )
+        try:
+            await session.start_live(live_settings)
+        except SessionBusyError as busy_error:
+            raise HTTPException(
+                status_code=409, detail="Stop the current run before going live"
+            ) from busy_error
+        except LiveNotAvailableError as not_available_error:
             raise HTTPException(
                 status_code=501,
-                detail="Live polling is not available yet; the desk runs replay only. "
-                "Orders go to the paper venue in every mode.",
-            )
+                detail="Live polling needs a live data source: set the Alpaca keys and start "
+                "the server with --source alpaca. Orders go to the paper venue in every mode.",
+            ) from not_available_error
         return status_response()
 
     @app.get("/api/backtest")

@@ -1,17 +1,24 @@
 """A desk run the terminal can watch and steer.
 
-One `DeskSession` owns one paper venue and at most one running replay. It turns
-the engine's events and per-bar updates into plain JSON messages for
-subscribers, and exposes the few controls the terminal needs: start, pause,
-resume, speed and the kill switch. It never changes what the desk decides; it
-only paces the loop and halts the venue.
+One `DeskSession` owns one paper venue and at most one run: a replay of history
+or live polling. It turns the engine's events and per-bar updates into plain
+JSON messages for subscribers, and exposes the few controls the terminal needs:
+start, pause, resume, speed and the kill switch. It never changes what the desk
+decides; it only paces the loop and halts the venue.
+
+Live polling uses the same engine and the same paper venue as a replay. The desk
+still decides on completed daily sessions only: each newly finished session is
+evaluated once, and ideas it approves are filled at the following session's open.
+Between closes the session only reads the latest traded prices for display. No
+order is sent to a broker in either mode.
 """
 
 import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from uuid import uuid4
 
 from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
@@ -23,6 +30,7 @@ from trading_desk.models import DeskEvent, Model, RiskLimits, VenueEvent
 from trading_desk.observability import get_logger
 from trading_desk.paper import PaperVenue
 from trading_desk.paper.journal import Journal
+from trading_desk.tools.historical_data import preload_history
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
@@ -36,8 +44,14 @@ SUBSCRIBER_QUEUE_LIMIT = 2000
 # Full candle history and the per-agent trace are large and already shown elsewhere.
 REPORT_FIELDS_NOT_PUBLISHED = {"data", "trace"}
 
+# On its first poll the live desk looks this far back for the latest completed session.
+# Longer than any market holiday break; a provider with nothing newer is stale.
+LIVE_LOOK_BACK = timedelta(days=10)
+ONE_MICROSECOND = timedelta(microseconds=1)
+
 Message = dict
 Sleeper = Callable[[float], Awaitable[None]]
+Clock = Callable[[], datetime]
 
 
 class SessionStatus(StrEnum):
@@ -56,6 +70,10 @@ class SessionNotRunningError(RuntimeError):
     """The control needs a replay that is running or paused."""
 
 
+class LiveNotAvailableError(RuntimeError):
+    """The configured data source cannot supply live prices (it has no `latest_prices`)."""
+
+
 class ReplaySettings(Model):
     """What to replay and how fast."""
 
@@ -72,6 +90,19 @@ class ReplaySettings(Model):
         if self.end < self.start:
             raise ValueError("the replay ends before it starts")
         return self
+
+
+class LiveSettings(Model):
+    """What to watch live and how often to ask the data source."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
+
+    symbols: list[str] = Field(min_length=1, max_length=50)
+    starting_cash: float = Field(default=100_000.0, gt=0)
+    # How often the latest traded prices are read for display.
+    price_poll_seconds: float = Field(default=15.0, ge=1, le=3600)
+    # How often the data source is asked whether a new daily session has completed.
+    bar_check_seconds: float = Field(default=300.0, ge=1, le=86_400)
 
 
 class DeskSession:
@@ -95,6 +126,7 @@ class DeskSession:
         sentiment_feed: SentimentFeed | None = None,
         news_tone_feed: SentimentFeed | None = None,
         sleep: Sleeper = asyncio.sleep,
+        clock: Clock = lambda: datetime.now(UTC),
     ):
         """Create an idle session bound to its data provider, market, limits, setup rules and
         optional
@@ -106,9 +138,10 @@ class DeskSession:
         self.news_tone_feed = news_tone_feed
         self.market_profile, self.limits, self.setup_rules = market_profile, limits, setup_rules
         self.journal = journal
-        self._sleep = sleep
+        self._sleep, self._clock = sleep, clock
         self.status = SessionStatus.IDLE
-        self.settings: ReplaySettings | None = None
+        self.mode = "replay"
+        self.settings: ReplaySettings | LiveSettings | None = None
         self.bars_per_second = 2.0
         self.kill_switch_engaged = False
         self.error: str | None = None
@@ -128,6 +161,8 @@ class DeskSession:
         self.candles_by_symbol: dict[str, deque[dict]] = {}
         self.reports_by_symbol: dict[str, dict] = {}
         self.recent_events: deque[dict] = deque(maxlen=RECENT_EVENT_LIMIT)
+        self.latest_prices: dict[str, float] = {}
+        self.prices_as_of: datetime | None = None
 
     # -- subscribers -------------------------------------------------------
 
@@ -158,7 +193,7 @@ class DeskSession:
     def _status_fields(self) -> dict:
         return {
             "status": self.status.value,
-            "mode": "replay",
+            "mode": self.mode,
             "venue": "paper",
             "kill_switch_engaged": self.kill_switch_engaged,
             "bars_per_second": self.bars_per_second,
@@ -208,6 +243,14 @@ class DeskSession:
             },
             "reports_by_symbol": dict(self.reports_by_symbol),
             "recent_events": list(self.recent_events),
+            "live_available": self.supports_live,
+            **self._price_fields(),
+        }
+
+    def _price_fields(self) -> dict:
+        return {
+            "latest_prices": dict(self.latest_prices),
+            "prices_as_of": self.prices_as_of.isoformat() if self.prices_as_of else None,
         }
 
     # -- controls ----------------------------------------------------------
@@ -216,6 +259,50 @@ class DeskSession:
     def is_active(self) -> bool:
         return self.status in {SessionStatus.RUNNING, SessionStatus.PAUSED}
 
+    @property
+    def supports_live(self) -> bool:
+        """Live polling needs a data source that can report the latest traded prices."""
+        return callable(getattr(self.data_provider, "latest_prices", None))
+
+    async def start_live(self, settings: LiveSettings) -> None:
+        """Begin live polling with a fresh paper account. Refuses if a run is already active or the
+        data source has no live prices. If the kill switch is engaged the venue starts halted.
+        """
+        if self.is_active:
+            raise SessionBusyError("a run is already active")
+        if not self.supports_live:
+            raise LiveNotAvailableError("the data source has no live prices")
+        self._reset_run_state()
+        self.mode = "live"
+        self.settings, self.error = settings, None
+        self.run_id = str(uuid4())
+        self.venue = PaperVenue(settings.starting_cash, self.market_profile)
+        halt_events = self.venue.halt(self._clock()) if self.kill_switch_engaged else []
+        self._not_paused.set()
+        self.status = SessionStatus.RUNNING
+        logger.info(
+            "Live polling started run_id=%s symbols=%s data=%s price_poll_seconds=%g "
+            "bar_check_seconds=%g starting_cash=%.2f kill_switch=%s",
+            self.run_id,
+            ",".join(settings.symbols),
+            self.data_provider.name,
+            settings.price_poll_seconds,
+            settings.bar_check_seconds,
+            settings.starting_cash,
+            self.kill_switch_engaged,
+        )
+        self._publish(self.snapshot())
+        for venue_event in halt_events:
+            self._publish_control_event(venue_event)
+        self._task = asyncio.create_task(self._run_live(settings, self.venue))
+
+    def use_replay_mode(self) -> None:
+        """Label the idle session as a replay desk again. Stop a live run first."""
+        if self.is_active:
+            raise SessionBusyError("a run is already active")
+        self.mode = "replay"
+        self._publish_status()
+
     async def start(self, settings: ReplaySettings) -> None:
         """Begin a new replay with a fresh paper account. Refuses if one is already running. If the
         kill switch is engaged the venue starts halted and the halt is journalled.
@@ -223,6 +310,7 @@ class DeskSession:
         if self.is_active:
             raise SessionBusyError("a replay is already running")
         self._reset_run_state()
+        self.mode = "replay"
         self.settings, self.bars_per_second = settings, settings.bars_per_second
         self.error = None
         self.venue = PaperVenue(settings.starting_cash, self.market_profile)
@@ -282,7 +370,7 @@ class DeskSession:
         )
         if self.venue is not None:
             if engaged and not self.venue.is_halted:
-                halted_at = self.bar_time or datetime.now(UTC)
+                halted_at = self.bar_time or self._clock()
                 for venue_event in self.venue.halt(halted_at):
                     self._publish_control_event(venue_event)
             elif not engaged:
@@ -351,6 +439,147 @@ class DeskSession:
             self._publish({"type": "account", "account": self._account_fields()})
             self._publish_status()
 
+    async def _run_live(self, settings: LiveSettings, venue: PaperVenue) -> None:
+        """Poll until stopped: check for a newly completed session every `bar_check_seconds`
+        and run the engine over it, and read the latest prices every `price_poll_seconds` in
+        between. A failed poll is logged and retried on the next round; it never ends the run.
+        """
+        last_bar_time: datetime | None = None
+        events_recorded = 0
+        price_polls_per_bar_check = max(
+            1, round(settings.bar_check_seconds / settings.price_poll_seconds)
+        )
+        try:
+            while True:
+                await self._not_paused.wait()
+                try:
+                    last_bar_time, new_event_count = await self._process_new_sessions(
+                        settings, venue, last_bar_time, events_recorded
+                    )
+                    events_recorded += new_event_count
+                    if self.error is not None:
+                        self.error = None
+                        self._publish_status()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    # Class name only in what is published; the redacted trace is in the log.
+                    self.error = type(exc).__name__
+                    logger.warning(
+                        "Live session check failed run_id=%s; retrying on the next poll",
+                        self.run_id,
+                        exc_info=True,
+                    )
+                    self._publish_status()
+                for _ in range(price_polls_per_bar_check):
+                    await self._poll_latest_prices(settings.symbols)
+                    await self._sleep(settings.price_poll_seconds)
+                    await self._not_paused.wait()
+        except asyncio.CancelledError:
+            self.status = SessionStatus.IDLE
+            logger.info(
+                "Live polling stopped run_id=%s sessions_processed=%d equity=%.2f",
+                self.run_id,
+                len(self.equity_curve),
+                venue.equity,
+            )
+            raise
+        finally:
+            self._not_paused.set()
+            self._publish({"type": "account", "account": self._account_fields()})
+            self._publish_status()
+
+    async def _process_new_sessions(
+        self,
+        settings: LiveSettings,
+        venue: PaperVenue,
+        last_bar_time: datetime | None,
+        events_recorded: int,
+    ) -> tuple[datetime | None, int]:
+        """Fetch the daily history once and run the engine over any session completed since
+        `last_bar_time`. On the first call only the latest completed session is acted on, and
+        the earlier history is loaded for the chart without being traded. Returns the newest
+        bar time processed so far and how many events this call recorded.
+        """
+        now = self._clock()
+        is_first_check = last_bar_time is None
+        history_provider = await preload_history(self.data_provider, settings.symbols)
+        if is_first_check:
+            await self._load_chart_history(history_provider, settings.symbols)
+        engine_result = await run_engine(
+            settings.symbols,
+            history_provider,
+            venue,
+            start=now - LIVE_LOOK_BACK if is_first_check else last_bar_time + ONE_MICROSECOND,
+            end=now,
+            market_profile=self.market_profile,
+            limits=self.limits,
+            setup_rules=self.setup_rules,
+            journal=self.journal,
+            on_event=self._on_event,
+            on_bar=self._on_live_bar,
+            news_feed=self.news_feed,
+            sentiment_feed=self.sentiment_feed,
+            news_tone_feed=self.news_tone_feed,
+            liquidate_at_end=False,
+            run_id=self.run_id,
+            first_event_sequence=events_recorded,
+            maximum_bars=1 if is_first_check else None,
+        )
+        if engine_result.equity_curve:
+            last_bar_time = engine_result.equity_curve[-1].timestamp
+            logger.info(
+                "Live session processed run_id=%s bar_time=%s sessions=%d equity=%.2f",
+                self.run_id,
+                last_bar_time.isoformat(),
+                engine_result.bars_processed,
+                venue.equity,
+            )
+        return last_bar_time, len(engine_result.events)
+
+    async def _load_chart_history(self, history_provider, symbols: list[str]) -> None:
+        """Fill the chart with each symbol's history up to, but not including, the latest
+        completed session; that one arrives as a normal bar when the engine processes it.
+        """
+        candles_by_symbol = {
+            symbol: (await history_provider.fetch(symbol)).candles for symbol in symbols
+        }
+        latest_bar_times = [
+            candles[-1].timestamp for candles in candles_by_symbol.values() if candles
+        ]
+        if not latest_bar_times:
+            return
+        latest_bar_time = max(latest_bar_times)
+        for symbol, candles in candles_by_symbol.items():
+            earlier_candles = [candle for candle in candles if candle.timestamp < latest_bar_time]
+            self.candles_by_symbol[symbol] = deque(
+                (candle.model_dump(mode="json") for candle in earlier_candles),
+                maxlen=CANDLE_HISTORY_LIMIT,
+            )
+        self._publish(self.snapshot())
+
+    async def _poll_latest_prices(self, symbols: list[str]) -> None:
+        """Read the latest traded prices for display and publish them. A failure is logged and
+        the previous prices stay; a missing price is never replaced with a guess.
+        """
+        try:
+            latest_prices = await self.data_provider.latest_prices(list(symbols))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Live price poll failed run_id=%s", self.run_id, exc_info=True)
+            return
+        self.latest_prices.update(latest_prices)
+        self.prices_as_of = self._clock()
+        logger.debug("Live prices run_id=%s symbols=%d", self.run_id, len(latest_prices))
+        self._publish({"type": "prices", **self._price_fields()})
+
+    async def _on_live_bar(self, bar_update: BarUpdate) -> None:
+        """Per-bar hook for live polling: store and publish the bar. There is no pacing delay;
+        the wait between sessions is the polling loop's.
+        """
+        self._record_bar(bar_update)
+
     def _on_event(self, event: DeskEvent) -> None:
         self.run_id = event.run_id
         event_fields = event.model_dump(mode="json")
@@ -376,10 +605,20 @@ class DeskSession:
         """Per-bar hook: store the bar's candles, equity point and reports, publish them, then wait
         for the pacing delay and for any pause to end.
         """
-        self.bar_index, self.bar_count = bar_update.bar_index, bar_update.bar_count
+        self._record_bar(bar_update)
+        await self._sleep(1.0 / self.bars_per_second)
+        await self._not_paused.wait()
+
+    def _record_bar(self, bar_update: BarUpdate) -> None:
+        """Store one finished bar (candles, equity point, desk reports) and publish it."""
         self.bar_time = bar_update.bar_time
         equity_fields = bar_update.equity_point.model_dump(mode="json")
         self.equity_curve.append(equity_fields)
+        if self.mode == "live":
+            # A live run has no known end: count the sessions seen so far.
+            self.bar_index, self.bar_count = len(self.equity_curve) - 1, None
+        else:
+            self.bar_index, self.bar_count = bar_update.bar_index, bar_update.bar_count
         candle_fields_by_symbol = {
             symbol: candle.model_dump(mode="json")
             for symbol, candle in bar_update.candles_by_symbol.items()
@@ -405,5 +644,3 @@ class DeskSession:
                 "account": self._account_fields(),
             }
         )
-        await self._sleep(1.0 / self.bars_per_second)
-        await self._not_paused.wait()

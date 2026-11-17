@@ -3,6 +3,8 @@
 from trading_desk.server.app import create_app, is_trusted_origin
 from trading_desk.server.session import (
     DeskSession,
+    LiveNotAvailableError,
+    LiveSettings,
     ReplaySettings,
     SessionBusyError,
     SessionNotRunningError,
@@ -11,6 +13,8 @@ from trading_desk.server.session import (
 
 __all__ = [
     "DeskSession",
+    "LiveNotAvailableError",
+    "LiveSettings",
     "ReplaySettings",
     "SessionBusyError",
     "SessionNotRunningError",
