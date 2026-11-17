@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -10,10 +11,25 @@ from pathlib import Path
 
 import httpx
 
+from trading_desk.desk import run_desk_decision, scan_watchlist
 from trading_desk.graph import run_research
 from trading_desk.llm import OpenAIProvider
-from trading_desk.models import Report
-from trading_desk.tools.market_data import AlphaVantageProvider, FixtureProvider
+from trading_desk.markets import US_EQUITIES
+from trading_desk.models import AccountSnapshot, DeskReport, Report
+from trading_desk.tools.historical_data import (
+    CachingProvider,
+    CsvDirectoryProvider,
+    YahooChartProvider,
+)
+from trading_desk.tools.market_data import (
+    AlphaVantageProvider,
+    FixtureProvider,
+    MarketDataProvider,
+)
+
+DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
+DEFAULT_PAPER_EQUITY = 100_000.0
+DEFAULT_CACHE_DIRECTORY = Path("data/market_cache")
 
 
 def markdown(report: Report) -> str:
@@ -49,15 +65,29 @@ def markdown(report: Report) -> str:
     return "\n".join(lines + ["", report.purpose, ""])
 
 
+def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
+    """Create the market data source the user asked for, failing loudly if unconfigured."""
+    if args.source == "alpha-vantage":
+        key = os.environ.get("ALPHAVANTAGE_API_KEY")
+        if not key:
+            raise ValueError("Export ALPHAVANTAGE_API_KEY for alpha-vantage data")
+        return AlphaVantageProvider(key, client)
+    if args.source == "yahoo":
+        return CachingProvider(YahooChartProvider(client), args.cache_dir)
+    if args.source == "csv":
+        if args.csv_dir is None:
+            raise ValueError("Pass --csv-dir with a folder of <SYMBOL>.csv files for csv data")
+        return CsvDirectoryProvider(args.csv_dir)
+    return FixtureProvider(args.scenario)
+
+
+def parse_evaluation_time(raw_value: str | None) -> datetime | None:
+    return datetime.fromisoformat(raw_value.replace("Z", "+00:00")) if raw_value else None
+
+
 async def execute(args) -> Report:
     async with httpx.AsyncClient() as client:
-        if args.source == "alpha-vantage":
-            key = os.environ.get("ALPHAVANTAGE_API_KEY")
-            if not key:
-                raise ValueError("Export ALPHAVANTAGE_API_KEY for alpha-vantage data")
-            provider = AlphaVantageProvider(key, client)
-        else:
-            provider = FixtureProvider(args.scenario)
+        provider = build_data_provider(args, client)
         llm = None
         if args.mode == "llm":
             key = os.environ.get("OPENAI_API_KEY")
@@ -66,28 +96,105 @@ async def execute(args) -> Report:
                     "Export OPENAI_API_KEY for LLM mode; no silent simulation fallback"
                 )
             llm = OpenAIProvider(key, os.environ.get("OPENAI_MODEL", "gpt-4o-mini"), client)
-        as_of = datetime.fromisoformat(args.as_of.replace("Z", "+00:00")) if args.as_of else None
-        return await run_research(args.symbol, provider, llm, as_of)
+        return await run_research(args.symbol, provider, llm, parse_evaluation_time(args.as_of))
+
+
+async def execute_desk(args) -> list[DeskReport]:
+    """Run the six-agent desk for one symbol (`decide`) or a watchlist (`scan`)."""
+    account = AccountSnapshot(equity=args.equity, cash=args.equity)
+    evaluation_time = parse_evaluation_time(args.as_of)
+    async with httpx.AsyncClient() as client:
+        provider = build_data_provider(args, client)
+        if args.desk_command == "decide":
+            return [await run_desk_decision(args.symbol, provider, account, evaluation_time)]
+        symbols = args.symbols or list(US_EQUITIES.default_watchlist)
+        return await scan_watchlist(symbols, provider, account, evaluation_time)
+
+
+def add_data_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--source", choices=DATA_SOURCES, default="fixture")
+    command.add_argument("--scenario", choices=["trend", "conflict", "missing"], default="trend")
+    command.add_argument("--csv-dir", type=Path, help="Folder of <SYMBOL>.csv daily bars")
+    command.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=DEFAULT_CACHE_DIRECTORY,
+        help="Where downloaded history is cached",
+    )
+    command.add_argument("--as-of", help="Timezone-aware historical evaluation timestamp")
+    command.add_argument("--output", type=Path, help="JSON output path (stdout if omitted)")
+    command.add_argument("--verbose", action="store_true", help="JSON node logs on stderr")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Research-only market intelligence desk")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    analyze = sub.add_parser("analyze", help="Technical thesis with independent review")
+    analyze.add_argument("symbol")
+    add_data_arguments(analyze)
+    analyze.add_argument("--mode", choices=["deterministic", "llm"], default="deterministic")
+    analyze.add_argument("--markdown", type=Path, help="Optional Markdown output path")
+
+    desk = sub.add_parser("desk", help="Six-agent paper trading desk")
+    desk_commands = desk.add_subparsers(dest="desk_command", required=True)
+    decide = desk_commands.add_parser("decide", help="One six-agent decision for one symbol")
+    decide.add_argument("symbol")
+    scan = desk_commands.add_parser("scan", help="Decide and rank a watchlist")
+    scan.add_argument("symbols", nargs="*", help="Symbols to scan (default: market watchlist)")
+    for desk_command in (decide, scan):
+        add_data_arguments(desk_command)
+        desk_command.add_argument(
+            "--equity", type=float, default=DEFAULT_PAPER_EQUITY, help="Paper account equity"
+        )
+    return parser
+
+
+def write_output(content: str, output_path: Path | None) -> None:
+    if output_path:
+        output_path.write_text(content)
+    else:
+        print(content, end="")
+
+
+def run_desk_command(args) -> int:
+    print(f"Data={args.source}; desk={args.desk_command}. Paper trading only.", file=sys.stderr)
+    try:
+        desk_reports = asyncio.run(execute_desk(args))
+    except (ValueError, OSError) as exc:
+        print(f"Configuration/output error: {exc}", file=sys.stderr)
+        return 2
+    if args.desk_command == "decide":
+        content = desk_reports[0].model_dump_json(indent=2) + "\n"
+    else:
+        serialised_reports = [desk_report.model_dump(mode="json") for desk_report in desk_reports]
+        content = json.dumps(serialised_reports, indent=2) + "\n"
+    try:
+        write_output(content, args.output)
+    except OSError:
+        print("Could not write report output", file=sys.stderr)
+        return 2
+    for desk_report in desk_reports:
+        score = desk_report.scout.score
+        print(
+            f"{desk_report.symbol}: scout={desk_report.scout.verdict}"
+            f"{'' if score is None else f' ({score:.2f})'}; "
+            f"risk={desk_report.risk.verdict}; decision={desk_report.decision.action}",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Research-only market intelligence desk")
-    sub = parser.add_subparsers(dest="command", required=True)
-    analyze = sub.add_parser("analyze")
-    analyze.add_argument("symbol")
-    analyze.add_argument("--source", choices=["fixture", "alpha-vantage"], default="fixture")
-    analyze.add_argument("--scenario", choices=["trend", "conflict", "missing"], default="trend")
-    analyze.add_argument("--mode", choices=["deterministic", "llm"], default="deterministic")
-    analyze.add_argument("--as-of", help="Timezone-aware historical evaluation timestamp")
-    analyze.add_argument("--output", type=Path, help="JSON output path (stdout if omitted)")
-    analyze.add_argument("--markdown", type=Path, help="Optional Markdown output path")
-    analyze.add_argument("--verbose", action="store_true", help="JSON node logs on stderr")
+    parser = build_parser()
     args = parser.parse_args()
     if args.source != "fixture" and args.scenario != "trend":
         parser.error("--scenario applies only to fixture data")
     if args.verbose:
         logging.basicConfig(level=logging.WARNING, format="%(message)s")
         logging.getLogger("trading_desk").setLevel(logging.INFO)
+    if args.command == "desk":
+        return run_desk_command(args)
     print(f"Data={args.source}; reasoning={args.mode}. Research only.", file=sys.stderr)
     try:
         report = asyncio.run(execute(args))
@@ -96,10 +203,7 @@ def main() -> int:
         return 2
     content = report.model_dump_json(indent=2) + "\n"
     try:
-        if args.output:
-            args.output.write_text(content)
-        else:
-            print(content, end="")
+        write_output(content, args.output)
         if args.markdown:
             args.markdown.write_text(markdown(report))
     except OSError:
