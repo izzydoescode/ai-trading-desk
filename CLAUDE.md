@@ -49,7 +49,7 @@ Things that look like bugs but are not:
 - The bundled fixture ends 2025-04-23. Without `--as-of`, evaluation uses current UTC time, so the fixture is stale and the run correctly returns `INSUFFICIENT_DATA`. Always pass `--as-of 2025-04-23T22:00:00Z` (tests use the `AS_OF` constant) to exercise the full scenario.
 - Exit code 0 means a valid report was produced, *including abstention*. Exit 2 is a configuration or output-write error. Check `abstained` in the report, not the exit status.
 - Fixtures only support the symbol `AAPL`; any other ticker abstains rather than relabelling synthetic data.
-- `.env.example` is reference only — there is no dotenv loader. Export `OPENAI_API_KEY` / `OPENAI_MODEL` (for `--mode llm`) and `ALPHAVANTAGE_API_KEY` (for `--source alpha-vantage`) in the shell.
+- API keys live in a git-ignored `.env` in the repo root (copy `.env.example`). The CLI loads it at start-up; values already exported in the shell win. Tests set `TRADING_DESK_SKIP_ENV_FILE` (in `tests/conftest.py`) so they never see real keys. Never print or log a key's value.
 - Tests are async without decorators (`asyncio_mode = "auto"`), and never hit the network: HTTP adapters are tested with `httpx.MockTransport`, the graph with injected fake providers.
 
 ## Architecture
