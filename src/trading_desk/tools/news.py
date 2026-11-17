@@ -79,19 +79,20 @@ def monday_of(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
 
-class FinnhubNewsFeed:
-    """Company news from Finnhub, fetched one calendar week at a time and cached.
+class WeeklyNewsFeed:
+    """Shared machinery for a news feed that is read one calendar week at a time.
 
     A finished week never changes, so it is stored on disk and a replay costs one
-    request per symbol per week, once. The week still in progress is always
-    fetched fresh.
+    request per symbol per week, once. The week still in progress is always fetched
+    fresh. Requests are spaced to stay under the vendor's rate limit and retried on
+    429, 5xx and transport errors. A subclass supplies the vendor call in `_load_week`.
     """
 
-    name = "finnhub-company-news"
+    name = "weekly-news"
+    cache_folder = "weekly"
 
     def __init__(
         self,
-        api_key: str,
         client: httpx.AsyncClient,
         cache_directory: Path | None = None,
         *,
@@ -99,13 +100,13 @@ class FinnhubNewsFeed:
         sleep: Sleeper = asyncio.sleep,
         clock: Clock = lambda: datetime.now(UTC),
     ):
-        """Create the feed with its key, HTTP client and optional disk cache. The request interval,
+        """Create the feed with its HTTP client and optional disk cache. The request interval,
         sleep and clock are injectable so tests run without waiting.
         """
-        self.api_key, self.client = api_key, client
+        self.client = client
         self.cache_directory = Path(cache_directory) if cache_directory else None
         self.minimum_request_interval_seconds = (
-            FINNHUB_MINIMUM_REQUEST_INTERVAL_SECONDS
+            self.default_minimum_request_interval_seconds()
             if minimum_request_interval_seconds is None
             else minimum_request_interval_seconds
         )
@@ -113,6 +114,14 @@ class FinnhubNewsFeed:
         self._request_lock = asyncio.Lock()
         self._last_request_at: datetime | None = None
         self._weeks_in_memory: dict[tuple[str, date], list[NewsItem]] = {}
+
+    def default_minimum_request_interval_seconds(self) -> float:
+        """Seconds to leave between requests unless the caller says otherwise."""
+        return 0.0
+
+    async def _load_week(self, symbol: str, week_start: date, week_end: date) -> list[NewsItem]:
+        """Ask the vendor for one calendar week of items for one symbol."""
+        raise NotImplementedError
 
     async def fetch(
         self, symbol: str, start: datetime, end: datetime, limit: int = MAXIMUM_ITEMS_PER_FETCH
@@ -142,8 +151,8 @@ class FinnhubNewsFeed:
         return visible_items[:limit]
 
     async def _week(self, symbol: str, week_start: date) -> list[NewsItem]:
-        """Return one calendar week of company news for a symbol, from memory, then the disk cache,
-        then Finnhub. Only finished weeks are cached: a week in progress can still gain news.
+        """Return one calendar week of news for a symbol, from memory, then the disk cache, then
+        the vendor. Only finished weeks are cached: a week in progress can still gain news.
         """
         cache_key = (symbol, week_start)
         if cache_key in self._weeks_in_memory:
@@ -151,7 +160,7 @@ class FinnhubNewsFeed:
         week_end = week_start + timedelta(days=6)
         week_is_finished = week_end < self._clock().date()
         cache_path = (
-            self.cache_directory / "finnhub" / symbol / f"{week_start.isoformat()}.json"
+            self.cache_directory / self.cache_folder / symbol / f"{week_start.isoformat()}.json"
             if self.cache_directory
             else None
         )
@@ -165,7 +174,7 @@ class FinnhubNewsFeed:
             except ValueError:
                 # A corrupt cache file is ignored and replaced below.
                 logger.warning("Corrupt news cache ignored path=%s", cache_path, exc_info=True)
-        news_items = parse_finnhub_items(await self._request(symbol, week_start, week_end))
+        news_items = await self._load_week(symbol, week_start, week_end)
         if week_is_finished:
             self._weeks_in_memory[cache_key] = news_items
             if cache_path is not None:
@@ -175,46 +184,38 @@ class FinnhubNewsFeed:
                 )
         return news_items
 
-    async def _request(self, symbol: str, week_start: date, week_end: date) -> object:
-        """Make one rate-limited request to Finnhub, retrying 429, 5xx and transport errors up to
-        three times.
+    async def _get_json(self, url: str, params: dict, headers: dict, context: str) -> object:
+        """Make one rate-limited GET and return its JSON, retrying 429, 5xx and transport
+        errors up to three times. `context` names the request in log lines.
         """
         async with self._request_lock:
             for attempt in range(3):
                 await self._respect_rate_limit()
                 try:
                     response = await self.client.get(
-                        FINNHUB_COMPANY_NEWS_URL,
-                        params={
-                            "symbol": symbol,
-                            "from": week_start.isoformat(),
-                            "to": week_end.isoformat(),
-                        },
-                        # The key travels in a header, never in the URL.
-                        headers={"X-Finnhub-Token": self.api_key},
-                        timeout=30,
+                        url, params=params, headers=headers, timeout=30
                     )
                     if response.status_code == 429 or response.status_code >= 500:
                         if attempt < 2:
                             logger.warning(
-                                "Finnhub news retry symbol=%s week=%s status=%d attempt=%d",
-                                symbol,
-                                week_start,
+                                "%s retry %s status=%d attempt=%d",
+                                self.name,
+                                context,
                                 response.status_code,
                                 attempt + 1,
                             )
                             await self._sleep(0.5 * 2**attempt)
                             continue
                     response.raise_for_status()
-                    logger.debug("Finnhub news fetched symbol=%s week=%s", symbol, week_start)
+                    logger.debug("%s fetched %s", self.name, context)
                     return response.json()
                 except httpx.TransportError:
                     if attempt == 2:
                         raise
                     logger.warning(
-                        "Finnhub news transport error symbol=%s week=%s attempt=%d",
-                        symbol,
-                        week_start,
+                        "%s transport error %s attempt=%d",
+                        self.name,
+                        context,
                         attempt + 1,
                         exc_info=True,
                     )
@@ -228,3 +229,54 @@ class FinnhubNewsFeed:
             if elapsed_seconds < self.minimum_request_interval_seconds:
                 await self._sleep(self.minimum_request_interval_seconds - elapsed_seconds)
         self._last_request_at = self._clock()
+
+
+class FinnhubNewsFeed(WeeklyNewsFeed):
+    """Company news from Finnhub. The key travels in a header, never in the URL."""
+
+    name = "finnhub-company-news"
+    cache_folder = "finnhub"
+
+    def __init__(self, api_key: str, client: httpx.AsyncClient, *arguments, **options):
+        self.api_key = api_key
+        super().__init__(client, *arguments, **options)
+
+    def default_minimum_request_interval_seconds(self) -> float:
+        return FINNHUB_MINIMUM_REQUEST_INTERVAL_SECONDS
+
+    async def _load_week(self, symbol: str, week_start: date, week_end: date) -> list[NewsItem]:
+        payload = await self._get_json(
+            FINNHUB_COMPANY_NEWS_URL,
+            {"symbol": symbol, "from": week_start.isoformat(), "to": week_end.isoformat()},
+            {"X-Finnhub-Token": self.api_key},
+            f"symbol={symbol} week={week_start}",
+        )
+        return parse_finnhub_items(payload)
+
+
+class FallbackNewsFeed:
+    """Asks the primary feed and, only if it fails, the backup.
+
+    An empty answer from the primary is an answer and is returned as it is. The backup
+    is used when the primary raises, so one vendor's outage does not blind SNOWDEN.
+    """
+
+    def __init__(self, primary_feed: NewsFeed, backup_feed: NewsFeed):
+        self.primary_feed, self.backup_feed = primary_feed, backup_feed
+        self.name = f"{primary_feed.name} (backup {backup_feed.name})"
+
+    async def fetch(
+        self, symbol: str, start: datetime, end: datetime, limit: int = MAXIMUM_ITEMS_PER_FETCH
+    ) -> list[NewsItem]:
+        """Items from the primary feed, or from the backup if the primary raises."""
+        try:
+            return await self.primary_feed.fetch(symbol, start, end, limit)
+        except Exception:
+            logger.warning(
+                "Primary news feed failed symbol=%s feed=%s; using backup feed=%s",
+                symbol,
+                self.primary_feed.name,
+                self.backup_feed.name,
+                exc_info=True,
+            )
+            return await self.backup_feed.fetch(symbol, start, end, limit)
