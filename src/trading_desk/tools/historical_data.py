@@ -55,6 +55,9 @@ class CsvDirectoryProvider:
         self.directory = Path(directory)
 
     async def fetch(self, symbol: str) -> MarketData:
+        """Read `<SYMBOL>.csv` from the folder and return its bars. A missing or unreadable file is
+        reported as an error on the data, not raised.
+        """
         csv_path = self.directory / f"{symbol}.csv"
         # A symbol must never select a file outside the configured folder.
         if csv_path.resolve().parent != self.directory.resolve() or not csv_path.is_file():
@@ -88,6 +91,9 @@ class YahooChartProvider:
         self.client, self.history_range = client, history_range
 
     async def fetch(self, symbol: str) -> MarketData:
+        """Fetch two years of daily bars from Yahoo's chart endpoint, retrying transport errors, 429
+        and 5xx. Any failure is reported as an error on the data; bars are never invented.
+        """
         for attempt in range(3):
             try:
                 response = await self.client.get(
@@ -124,6 +130,7 @@ class YahooChartProvider:
         )
 
     def _candles(self, chart_result: dict) -> list[Candle]:
+        """Convert Yahoo's parallel arrays into candles, skipping sessions with a missing value."""
         quote = chart_result["indicators"]["quote"][0]
         candles = []
         for index, epoch_seconds in enumerate(chart_result["timestamp"]):
@@ -203,6 +210,9 @@ class FallbackProvider:
         self.name = "fallback(" + ",".join(provider.name for provider in self.providers) + ")"
 
     async def fetch(self, symbol: str) -> MarketData:
+        """Try each provider in order and return the first result that has bars and no errors;
+        otherwise return the last attempt with every provider's error.
+        """
         failures: list[str] = []
         for provider in self.providers:
             try:

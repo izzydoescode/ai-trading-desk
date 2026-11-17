@@ -124,6 +124,10 @@ def create_app(
 
     @app.post("/api/replay/start", status_code=202)
     async def start_replay(request: StartReplayRequest) -> dict:
+        """POST /api/replay/start: start a replay using the server's defaults overridden by any
+        fields
+        supplied. 422 for an invalid symbol or window, 409 if a replay is already running.
+        """
         requested_fields = request.model_dump(exclude_none=True)
         if "symbols" in requested_fields:
             requested_fields["symbols"] = normalise_symbols(requested_fields["symbols"])
@@ -220,6 +224,10 @@ def create_app(
 
     @app.websocket("/ws/events")
     async def stream_events(websocket: WebSocket) -> None:
+        """WebSocket /ws/events: refuse pages from other sites, then send one snapshot followed by
+        every desk message until the client disconnects. A reader that fell behind is sent a fresh
+        snapshot instead of a stale backlog.
+        """
         if not is_trusted_origin(websocket.headers.get("origin")):
             await websocket.close(code=WEBSOCKET_POLICY_VIOLATION)
             return

@@ -90,6 +90,9 @@ class _EventRecorder:
         reason: str,
         **detail: str | float | int | bool | None,
     ) -> None:
+        """Record one desk event with the next sequence number and pass it to the journal and the
+        listener.
+        """
         event = DeskEvent(
             run_id=self.run_id,
             sequence=len(self.events),
@@ -205,6 +208,10 @@ async def run_engine(
         symbols_with_a_bar: list[str],
         desk_reports: list[DeskReport],
     ) -> None:
+        """Hand the finished bar (its candles, equity point and the desk reports acted on) to the
+        per-
+        bar hook, if there is one.
+        """
         if on_bar is None:
             return
         await on_bar(

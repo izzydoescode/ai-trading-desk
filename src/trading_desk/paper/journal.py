@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS closed_trades (
 
 
 class Journal:
+    """SQLite record of everything the desk did: every event with its reason, and every closed
+    trade.
+    In-memory by default; give it a path to keep it.
+    """
+
     def __init__(self, database_path: Path | str = ":memory:"):
         if database_path != ":memory:":
             Path(database_path).parent.mkdir(parents=True, exist_ok=True)
@@ -41,6 +46,7 @@ class Journal:
         self.connection.commit()
 
     def record_event(self, event: DeskEvent) -> None:
+        """Append one desk event to the journal."""
         self.connection.execute(
             "INSERT INTO desk_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (

@@ -44,6 +44,14 @@ class ExecutionVenue(Protocol):
 
 
 class PaperVenue:
+    """The simulated broker. The only venue this project has.
+
+    Orders queue and fill at the next bar's open with slippage and commission. Each bar it checks
+    open positions: the stop is checked before the target, and a gap through either level exits at
+    the open. It tracks cash, positions, closed trades and the day's realised loss, and can be
+    halted by the kill switch.
+    """
+
     name = "paper"
 
     def __init__(self, starting_cash: float, market_profile: MarketProfile):
@@ -127,6 +135,10 @@ class PaperVenue:
         return events
 
     def _fill(self, plan: TradePlan, candle: Candle) -> VenueEvent:
+        """Open a position for a queued plan at this bar's open, charging slippage and commission.
+        The
+        order is rejected instead if cash no longer covers it.
+        """
         if candle.open <= plan.stop:
             return self._event(
                 VenueEventKind.CANCEL, candle.timestamp, plan.symbol, "opened_at_or_below_stop"
@@ -168,6 +180,9 @@ class PaperVenue:
         self, position: Position, candle: Candle, position_opened_this_bar: bool
     ) -> VenueEvent | None:
         # The open belongs to the entry on the fill bar, so a gap exit cannot apply there.
+        """Decide whether this bar closes the position and at what price: a gap through the stop or
+        target exits at the open, otherwise the stop is checked before the target.
+        """
         if not position_opened_this_bar and candle.open <= position.stop:
             return self._close(position, candle.open, candle.timestamp, ExitReason.STOP)
         if candle.low <= position.stop:
@@ -181,6 +196,10 @@ class PaperVenue:
     def _close(
         self, position: Position, reference_price: float, closed_at: datetime, reason: ExitReason
     ) -> VenueEvent:
+        """Close a position at the given price: apply exit slippage and commission, return the cash,
+        record the trade with its profit or loss in money and in R, and add any loss to today's
+        realised loss.
+        """
         exit_price = reference_price * (1 - self.market_profile.slippage_rate)
         proceeds = position.units * exit_price
         commission = proceeds * self.market_profile.commission_rate
@@ -270,6 +289,7 @@ class PaperVenue:
         units: float | None = None,
         profit_and_loss: float | None = None,
     ) -> VenueEvent:
+        """Build one venue event (submit, fill, exit, reject, halt, cancel) with its reason."""
         return VenueEvent(
             kind=kind,
             timestamp=timestamp,

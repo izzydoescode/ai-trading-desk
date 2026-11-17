@@ -39,6 +39,12 @@ class HeadlineToneFeed:
         self.name = f"headline-tone:{llm.name}"
 
     async def fetch(self, symbol: str, start: datetime, end: datetime) -> SentimentReading:
+        """Return a tone reading for one symbol and window.
+
+        Fetches the headlines, numbers them, asks the model for one label per number, checks every
+        number was labelled exactly once, and counts bullish, bearish and neutral. No headlines
+        means no model call and an empty reading.
+        """
         news_items = await self.news_feed.fetch(symbol, start, end, limit=self.maximum_headlines)
         source = (
             f"news tone ({self.llm.name} on {len(news_items)} {self.news_feed.name} headlines; "

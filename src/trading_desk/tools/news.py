@@ -96,6 +96,9 @@ class FinnhubNewsFeed:
         sleep: Sleeper = asyncio.sleep,
         clock: Clock = lambda: datetime.now(UTC),
     ):
+        """Create the feed with its key, HTTP client and optional disk cache. The request interval,
+        sleep and clock are injectable so tests run without waiting.
+        """
         self.api_key, self.client = api_key, client
         self.cache_directory = Path(cache_directory) if cache_directory else None
         self.minimum_request_interval_seconds = (
@@ -111,6 +114,10 @@ class FinnhubNewsFeed:
     async def fetch(
         self, symbol: str, start: datetime, end: datetime, limit: int = MAXIMUM_ITEMS_PER_FETCH
     ) -> list[NewsItem]:
+        """Return up to `limit` items published inside `[start, end]`, newest first, with duplicate
+        headlines removed. Reads every calendar week the window touches, then drops anything
+        outside the window, so news after `end` can never appear.
+        """
         if end < start:
             raise ValueError("the news window ends before it starts")
         week_start = monday_of(start.astimezone(UTC).date())
@@ -132,6 +139,9 @@ class FinnhubNewsFeed:
         return visible_items[:limit]
 
     async def _week(self, symbol: str, week_start: date) -> list[NewsItem]:
+        """Return one calendar week of company news for a symbol, from memory, then the disk cache,
+        then Finnhub. Only finished weeks are cached: a week in progress can still gain news.
+        """
         cache_key = (symbol, week_start)
         if cache_key in self._weeks_in_memory:
             return self._weeks_in_memory[cache_key]
@@ -162,6 +172,9 @@ class FinnhubNewsFeed:
         return news_items
 
     async def _request(self, symbol: str, week_start: date, week_end: date) -> object:
+        """Make one rate-limited request to Finnhub, retrying 429, 5xx and transport errors up to
+        three times.
+        """
         async with self._request_lock:
             for attempt in range(3):
                 await self._respect_rate_limit()

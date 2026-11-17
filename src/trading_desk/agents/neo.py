@@ -58,6 +58,13 @@ Levels = tuple[float, float, float, str, str]  # entry, stop, target, confirmati
 
 
 def _breakout(indicators: Indicators, rules: SetupRules) -> tuple[Levels | None, str]:
+    """Check the BREAKOUT pattern and return (levels or None, a note saying why).
+
+    Triggers when the close is above the longest prior high it has cleared (52-week, then
+    55-session, then 20-session) AND the latest volume is at least `breakout_volume_ratio` times
+    its 20-session average. Stop is `stop_atr_multiple` ATR under the close; target is
+    `target_reward_multiple` times that risk above it.
+    """
     close, average_true_range = indicators.close, indicators.atr14
     windows = [
         ("52-week", indicators.prior_high252),
@@ -94,6 +101,11 @@ def _breakout(indicators: Indicators, rules: SetupRules) -> tuple[Levels | None,
 def _trend_continuation(
     indicators: Indicators, rules: SetupRules, thesis_classification: Classification
 ) -> tuple[Levels | None, str]:
+    """Check the TREND_CONTINUATION pattern and return (levels or None, a note).
+
+    Triggers when the technical thesis is BULLISH (close above SMA20 above SMA50). Stop and target
+    are placed the same way as for a breakout.
+    """
     if thesis_classification != Classification.BULLISH:
         return None, "TREND_CONTINUATION: close is not above SMA20 above SMA50."
     close = indicators.close
@@ -110,6 +122,13 @@ def _trend_continuation(
 
 
 def _bollinger_reversion(indicators: Indicators, rules: SetupRules) -> tuple[Levels | None, str]:
+    """Check the BOLLINGER_REVERSION pattern and return (levels or None, a note).
+
+    Triggers when the session's low touches or crosses the lower band while the close is still
+    above SMA50. Stop sits `reversion_stop_atr_buffer` ATR under the low that touched; target is
+    the upper band or the 20-session high, whichever is nearer. Refused when there is no room
+    between entry and target.
+    """
     close, latest_low = indicators.close, indicators.latest_low
     lower_band, upper_band = indicators.bollinger_lower20, indicators.bollinger_upper20
     if lower_band is None or upper_band is None or latest_low is None:
@@ -143,6 +162,13 @@ def analyze_chart(
     blockers: list[str],
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
 ) -> ChartReport:
+    """Build NEO's chart report for one symbol.
+
+    Forms the technical thesis and its counter-case, then, if the data is usable, checks each
+    enabled strategy in order. The first pattern that triggers supplies the trade setup; every
+    pattern leaves a note explaining why it did or did not fire. With no trigger the report has no
+    setup and says what NEO is watching for.
+    """
     thesis = technical.analyze(indicators)
     counter_case = contrarian.review(indicators, thesis, blockers)
     close, average_true_range = indicators.close, indicators.atr14

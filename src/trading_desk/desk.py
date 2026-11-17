@@ -60,6 +60,11 @@ DEFAULT_RISK_LIMITS = RiskLimits()
 
 
 class DeskState(TypedDict, total=False):
+    """Everything the desk graph carries for one decision: the request, the market data and
+    indicators, optional supplied news and sentiment, each agent's report, the model review, and
+    the trace of every step.
+    """
+
     run_id: str
     symbol: str
     as_of: datetime
@@ -91,6 +96,14 @@ def build_desk_graph(
     sentiment_feed: SentimentFeed | None = None,
     news_tone_feed: SentimentFeed | None = None,
 ):
+    """Assemble the six-agent decision graph for one symbol.
+
+    Flow: market data, then the quality audit, then HAWKEYE, NEO, SNOWDEN and FAMA in parallel,
+    then ODIN, then PICARD. SNOWDEN and FAMA read their feeds here, point-in-time, and abstain if a
+    feed fails. When a model is supplied it reviews only a trade the rules already approved, and
+    any veto, error or timeout turns it into WAIT.
+    """
+
     def trace(state: DeskState, agent: str, start: float, error: str | None = None) -> list[Trace]:
         return record_trace(state["run_id"], agent, start, error, RULES_PROVIDER_NAME)
 
@@ -128,6 +141,11 @@ def build_desk_graph(
         return {"chart": chart_report, "trace": trace(state, "neo", start)}
 
     async def run_snowden(state: DeskState):
+        """SNOWDEN's graph step: get the week's news ending at the evaluation time (supplied items
+        win
+        over the feed), optionally read headline tone, and build the news report. A failed feed
+        means SNOWDEN abstains; a failed tone reading means it only lists the items.
+        """
         start = perf_counter()
         news_items, error, provider_name = state.get("news_items"), None, RULES_PROVIDER_NAME
         if news_items is None and news_feed is not None:
@@ -163,6 +181,9 @@ def build_desk_graph(
         }
 
     async def run_fama(state: DeskState):
+        """FAMA's graph step: use the supplied sentiment reading or ask the sentiment feed for one,
+        then build the sentiment report. A failed or slow feed means FAMA abstains.
+        """
         start = perf_counter()
         sentiment_reading, error = state.get("sentiment_reading"), None
         provider_name = RULES_PROVIDER_NAME
@@ -197,6 +218,11 @@ def build_desk_graph(
         return {"risk": risk_report, "trace": trace(state, "odin", start)}
 
     async def run_picard(state: DeskState):
+        """PICARD's graph step: make the rule-based decision, then, only if it is TRADE and a
+        model is
+        configured, ask the model to approve or veto it. A veto, an error or a timeout turns the
+        decision into WAIT; the plan is never altered.
+        """
         start = perf_counter()
         decision = picard.decide(
             state["scout"], state["chart"], state["news"], state["sentiment"], state["risk"]
@@ -288,6 +314,9 @@ class Desk:
         sentiment_feed: SentimentFeed | None = None,
         news_tone_feed: SentimentFeed | None = None,
     ):
+        """Build the decision graph once with this desk's data provider, market, risk limits, setup
+        rules, optional model and optional news and sentiment feeds.
+        """
         self.market_profile = market_profile
         self.limits = limits
         self.setup_rules = setup_rules
