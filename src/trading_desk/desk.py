@@ -164,6 +164,90 @@ def build_desk_graph(
     return builder.compile()
 
 
+class Desk:
+    """A compiled six-agent graph that can decide many symbols and times cheaply.
+
+    Build one per configuration and reuse it: backtests make thousands of
+    decisions and should not recompile the graph for each.
+    """
+
+    def __init__(
+        self,
+        data_provider: MarketDataProvider,
+        market_profile: MarketProfile = US_EQUITIES,
+        limits: RiskLimits = DEFAULT_RISK_LIMITS,
+        setup_rules: SetupRules = DEFAULT_SETUP_RULES,
+    ):
+        self.market_profile = market_profile
+        self.limits = limits
+        self.setup_rules = setup_rules
+        self.graph = build_desk_graph(data_provider, market_profile, limits, setup_rules)
+
+    async def decide(
+        self,
+        symbol: str,
+        account: AccountSnapshot,
+        as_of: datetime | None = None,
+        *,
+        news_items: Sequence[NewsItem] | None = None,
+        sentiment_reading: SentimentReading | None = None,
+    ) -> DeskReport:
+        """Run all six agents for one symbol and return the complete, validated report."""
+        symbol, as_of = validate_request(symbol, as_of)
+        state = await self.graph.ainvoke(
+            {
+                "run_id": str(uuid4()),
+                "symbol": symbol,
+                "as_of": as_of,
+                "account": account,
+                "news_items": news_items,
+                "sentiment_reading": sentiment_reading,
+                "trace": [],
+            }
+        )
+        data = state["data"]
+        return DeskReport(
+            run_id=state["run_id"],
+            symbol=symbol,
+            market=self.market_profile.name,
+            analysis_timestamp=datetime.now(UTC),
+            evaluated_as_of=as_of,
+            mode="deterministic",
+            data=data,
+            market_data_timestamp=data.candles[-1].timestamp if data.candles else None,
+            indicators=state["indicators"],
+            account=account,
+            limits=self.limits,
+            scout=state["scout"],
+            chart=state["chart"],
+            news=state["news"],
+            sentiment=state["sentiment"],
+            risk=state["risk"],
+            decision=state["decision"],
+            limitations=state["limitations"]
+            + state["blockers"]
+            + [entry.error for entry in state["trace"] if entry.error],
+            trace=state["trace"],
+        )
+
+    async def scan(
+        self, symbols: Sequence[str], account: AccountSnapshot, as_of: datetime | None = None
+    ) -> list[DeskReport]:
+        """Decide every symbol against the same account snapshot, best scout rank first.
+
+        Each report is independent: the caller chooses which approved idea to act on,
+        so two approvals here do not mean two positions.
+        """
+        desk_reports = await asyncio.gather(
+            *(self.decide(symbol, account, as_of) for symbol in symbols)
+        )
+        reports_by_symbol = {desk_report.symbol: desk_report for desk_report in desk_reports}
+        ranked_scout_reports = hawkeye.rank_watchlist(
+            desk_report.scout for desk_report in desk_reports
+        )
+        return [reports_by_symbol[scout_report.symbol] for scout_report in ranked_scout_reports]
+
+
 async def run_desk_decision(
     symbol: str,
     data_provider: MarketDataProvider,
@@ -176,43 +260,10 @@ async def run_desk_decision(
     news_items: Sequence[NewsItem] | None = None,
     sentiment_reading: SentimentReading | None = None,
 ) -> DeskReport:
-    """Run all six agents for one symbol and return the complete, validated report."""
-    symbol, as_of = validate_request(symbol, as_of)
-    graph = build_desk_graph(data_provider, market_profile, limits, setup_rules)
-    state = await graph.ainvoke(
-        {
-            "run_id": str(uuid4()),
-            "symbol": symbol,
-            "as_of": as_of,
-            "account": account,
-            "news_items": news_items,
-            "sentiment_reading": sentiment_reading,
-            "trace": [],
-        }
-    )
-    data = state["data"]
-    return DeskReport(
-        run_id=state["run_id"],
-        symbol=symbol,
-        market=market_profile.name,
-        analysis_timestamp=datetime.now(UTC),
-        evaluated_as_of=as_of,
-        mode="deterministic",
-        data=data,
-        market_data_timestamp=data.candles[-1].timestamp if data.candles else None,
-        indicators=state["indicators"],
-        account=account,
-        limits=limits,
-        scout=state["scout"],
-        chart=state["chart"],
-        news=state["news"],
-        sentiment=state["sentiment"],
-        risk=state["risk"],
-        decision=state["decision"],
-        limitations=state["limitations"]
-        + state["blockers"]
-        + [entry.error for entry in state["trace"] if entry.error],
-        trace=state["trace"],
+    """One-off decision: builds a Desk and asks it once."""
+    desk = Desk(data_provider, market_profile, limits, setup_rules)
+    return await desk.decide(
+        symbol, account, as_of, news_items=news_items, sentiment_reading=sentiment_reading
     )
 
 
@@ -221,19 +272,11 @@ async def scan_watchlist(
     data_provider: MarketDataProvider,
     account: AccountSnapshot,
     as_of: datetime | None = None,
-    **decision_options,
+    *,
+    market_profile: MarketProfile = US_EQUITIES,
+    limits: RiskLimits = DEFAULT_RISK_LIMITS,
+    setup_rules: SetupRules = DEFAULT_SETUP_RULES,
 ) -> list[DeskReport]:
-    """Decide every symbol against the same account snapshot, best scout rank first.
-
-    Each report is independent: the caller chooses which approved idea to act on,
-    so two approvals here do not mean two positions.
-    """
-    desk_reports = await asyncio.gather(
-        *(
-            run_desk_decision(symbol, data_provider, account, as_of, **decision_options)
-            for symbol in symbols
-        )
-    )
-    reports_by_symbol = {desk_report.symbol: desk_report for desk_report in desk_reports}
-    ranked_scout_reports = hawkeye.rank_watchlist(desk_report.scout for desk_report in desk_reports)
-    return [reports_by_symbol[scout_report.symbol] for scout_report in ranked_scout_reports]
+    """One-off ranked scan of a watchlist."""
+    desk = Desk(data_provider, market_profile, limits, setup_rules)
+    return await desk.scan(symbols, account, as_of)
