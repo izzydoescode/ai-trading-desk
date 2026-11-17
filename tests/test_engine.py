@@ -602,3 +602,114 @@ async def test_the_market_trend_is_read_point_in_time_and_once_per_moment():
     after_the_collapse = await desk.decide("AAPL", account, later_sessions[-1].timestamp)
     assert after_the_collapse.chart.market_trend.value == "BEARISH"
     assert provider.fetch_counts["SPY"] == 2
+
+
+class ScriptedIntradayProvider:
+    """Test double (not a test): returns fixed minute bars for any session, or raises, and
+    records which sessions were asked for.
+    """
+
+    name = "scripted-intraday"
+
+    def __init__(self, minute_ranges=(), error=None):
+        self.minute_ranges, self.error, self.requests = minute_ranges, error, []
+
+    async def fetch_session(self, symbol, daily_bar_time):
+        self.requests.append((symbol, daily_bar_time))
+        if self.error is not None:
+            raise self.error
+        return [
+            Candle(
+                timestamp=daily_bar_time - timedelta(hours=6) + timedelta(minutes=minute),
+                open=(low + high) / 2,
+                high=high,
+                low=low,
+                close=(low + high) / 2,
+                volume=100,
+            )
+            for minute, (low, high) in enumerate(self.minute_ranges)
+        ]
+
+
+async def run_until_a_day_touches_stop_and_target(intraday_provider=None):
+    """Test helper (not a test): replays the rising fixture up to the session after the desk's
+    first lasting long was filled, then appends one session whose range covers both its stop
+    and its target. Returns the result, the wide session, the trade as first planned, and
+    how many trades closed before it.
+    """
+    candles = make_trending_candles()
+    limits = RiskLimits(stalled_trade_sessions=None)
+    full_run, _ = await run(
+        SyntheticProvider({"AAPL": candles}), end=candles[-1].timestamp, limits=limits
+    )
+    earlier_trade_count, planned_trade = next(
+        (trade_number, trade)
+        for trade_number, trade in enumerate(full_run.closed_trades)
+        if trade.bars_held >= 3 and trade.strategy.value != "BOLLINGER_REVERSION"
+    )
+    fill_index = [candle.timestamp for candle in candles].index(planned_trade.opened_at)
+    candles_while_held = candles[: fill_index + 2]
+    last_close = candles_while_held[-1].close
+    assert planned_trade.planned_stop < last_close < planned_trade.planned_target
+    next_day = candles_while_held[-1].timestamp + timedelta(days=1)
+    while next_day.weekday() >= 5:
+        next_day += timedelta(days=1)
+    wide_session = Candle(
+        timestamp=next_day,
+        open=last_close,
+        high=planned_trade.planned_target + 1,
+        low=planned_trade.planned_stop - 1,
+        close=last_close,
+        volume=1_000_000,
+    )
+    result, _ = await run(
+        SyntheticProvider({"AAPL": [*candles_while_held, wide_session]}),
+        end=wide_session.timestamp,
+        liquidate_at_end=False,
+        limits=limits,
+        intraday_provider=intraday_provider,
+    )
+    return result, wide_session, planned_trade, earlier_trade_count
+
+
+async def test_the_engine_fetches_minute_bars_only_for_the_ambiguous_day_and_uses_them():
+    """Verifies: across a whole run the intraday provider is asked for exactly one session,
+    the one that touched both levels, and minute bars reaching the target first make that
+    trade a winner instead of the assumed loser.
+    """
+    (
+        without_minute_bars,
+        wide_session,
+        planned_trade,
+        earlier_trade_count,
+    ) = await run_until_a_day_touches_stop_and_target()
+    assumed_trade = without_minute_bars.closed_trades[earlier_trade_count]
+    assert assumed_trade.exit_reason is ExitReason.STOP
+    assert assumed_trade.same_bar_resolution.value == "ASSUMED_STOP_FIRST"
+
+    target_first = ScriptedIntradayProvider(
+        [
+            (planned_trade.planned_target - 2, planned_trade.planned_target + 0.5),
+            (planned_trade.planned_stop - 0.5, planned_trade.planned_stop + 2),
+        ]
+    )
+    with_minute_bars, _, _, _ = await run_until_a_day_touches_stop_and_target(target_first)
+    settled_trade = with_minute_bars.closed_trades[earlier_trade_count]
+    assert target_first.requests == [("AAPL", wide_session.timestamp)]
+    assert settled_trade.exit_reason is ExitReason.TARGET
+    assert settled_trade.same_bar_resolution.value == "INTRADAY"
+    assert settled_trade.profit_and_loss > 0 > assumed_trade.profit_and_loss
+    assert with_minute_bars.final_equity > without_minute_bars.final_equity
+
+
+async def test_a_failed_minute_bar_fetch_falls_back_to_the_worst_case_and_leaks_nothing():
+    """Verifies: when the intraday provider raises, the run continues, the trade is closed on
+    the stop-first assumption, and the error text reaches no event.
+    """
+    failing = ScriptedIntradayProvider(error=ConnectionError("apikey=secret-key failed"))
+    result, _, _, earlier_trade_count = await run_until_a_day_touches_stop_and_target(failing)
+    assert len(failing.requests) == 1
+    assumed_trade = result.closed_trades[earlier_trade_count]
+    assert assumed_trade.exit_reason is ExitReason.STOP
+    assert assumed_trade.same_bar_resolution.value == "ASSUMED_STOP_FIRST"
+    assert all("secret" not in event.model_dump_json() for event in result.events)

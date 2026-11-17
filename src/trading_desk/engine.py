@@ -39,7 +39,7 @@ from trading_desk.paper.journal import Journal
 from trading_desk.paper.venue import PaperVenue
 from trading_desk.tools.historical_data import preload_history
 from trading_desk.tools.indicators import bollinger_bands
-from trading_desk.tools.market_data import MarketDataProvider
+from trading_desk.tools.market_data import IntradayBarsProvider, MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
 
@@ -189,6 +189,7 @@ async def run_engine(
     run_id: str | None = None,
     first_event_sequence: int = 0,
     maximum_bars: int | None = None,
+    intraday_provider: IntradayBarsProvider | None = None,
 ) -> EngineResult:
     """Drive the desk over every bar in `[start, end]` and return what happened.
 
@@ -201,6 +202,10 @@ async def run_engine(
     positions open with `liquidate_at_end=False`, and on its first call uses
     `maximum_bars=1` to act on the latest completed session only instead of
     trading its way through the look-back window.
+
+    With an `intraday_provider`, a daily bar that touches both a position's stop and its
+    target is settled by that session's minute bars instead of by assuming the stop came
+    first. Minute bars are fetched only for such bars.
     """
     if end < start:
         raise ValueError("the run ends before it starts")
@@ -258,6 +263,35 @@ async def run_engine(
                 journal.record_trade(run_id, closed_trade)
         trades_already_recorded = len(venue.closed_trades)
 
+    async def intraday_bars_if_needed(symbol: str, candle: Candle) -> list[Candle] | None:
+        """Minute bars for this session when the bar touches both the stop and the target and a
+        provider is configured; otherwise None. A failed fetch is logged and treated as no
+        data, which leaves the venue on its worst-case assumption.
+        """
+        if intraday_provider is None or not venue.needs_intraday_bars(symbol, candle):
+            return None
+        try:
+            intraday_candles = await intraday_provider.fetch_session(symbol, candle.timestamp)
+        except Exception:
+            logger.warning(
+                "Intraday bars unavailable run_id=%s symbol=%s bar=%s provider=%s; assuming "
+                "the stop came first",
+                run_id,
+                symbol,
+                candle.timestamp.isoformat(),
+                intraday_provider.name,
+                exc_info=True,
+            )
+            return None
+        logger.info(
+            "Stop and target both touched run_id=%s symbol=%s bar=%s intraday_bars=%d",
+            run_id,
+            symbol,
+            candle.timestamp.isoformat(),
+            len(intraday_candles),
+        )
+        return intraday_candles
+
     async def publish_bar(
         bar_index: int,
         bar_time: datetime,
@@ -307,7 +341,9 @@ async def run_engine(
                         symbol,
                         exit_band,
                     )
-            for venue_event in venue.process_bar(symbol, bars_by_symbol[symbol][bar_time]):
+            daily_candle = bars_by_symbol[symbol][bar_time]
+            intraday_candles = await intraday_bars_if_needed(symbol, daily_candle)
+            for venue_event in venue.process_bar(symbol, daily_candle, intraday_candles):
                 recorder.emit_venue_event(venue_event)
         record_new_trades()
         result.equity_curve.append(

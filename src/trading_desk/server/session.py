@@ -31,7 +31,7 @@ from trading_desk.observability import get_logger
 from trading_desk.paper import PaperVenue
 from trading_desk.paper.journal import Journal
 from trading_desk.tools.historical_data import preload_history
-from trading_desk.tools.market_data import MarketDataProvider
+from trading_desk.tools.market_data import IntradayBarsProvider, MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
 
@@ -125,6 +125,7 @@ class DeskSession:
         news_feed: NewsFeed | None = None,
         sentiment_feed: SentimentFeed | None = None,
         news_tone_feed: SentimentFeed | None = None,
+        intraday_provider: IntradayBarsProvider | None = None,
         sleep: Sleeper = asyncio.sleep,
         clock: Clock = lambda: datetime.now(UTC),
     ):
@@ -136,6 +137,7 @@ class DeskSession:
         self.news_feed = news_feed
         self.sentiment_feed = sentiment_feed
         self.news_tone_feed = news_tone_feed
+        self.intraday_provider = intraday_provider
         self.market_profile, self.limits, self.setup_rules = market_profile, limits, setup_rules
         self.journal = journal
         self._sleep, self._clock = sleep, clock
@@ -231,6 +233,7 @@ class DeskSession:
             "data_source": self.data_provider.name,
             "news_source": self.news_feed.name if self.news_feed else None,
             "sentiment_source": self.sentiment_feed.name if self.sentiment_feed else None,
+            "intraday_source": self.intraday_provider.name if self.intraday_provider else None,
             "settings": self.settings.model_dump(mode="json") if self.settings else None,
             "limits": self.limits.model_dump(mode="json"),
             "setup_rules": self.setup_rules.model_dump(mode="json"),
@@ -411,6 +414,7 @@ class DeskSession:
                 news_feed=self.news_feed,
                 sentiment_feed=self.sentiment_feed,
                 news_tone_feed=self.news_tone_feed,
+                intraday_provider=self.intraday_provider,
             )
             self.status = SessionStatus.FINISHED
             logger.info(
@@ -524,6 +528,7 @@ class DeskSession:
             news_feed=self.news_feed,
             sentiment_feed=self.sentiment_feed,
             news_tone_feed=self.news_tone_feed,
+            intraday_provider=self.intraday_provider,
             liquidate_at_end=False,
             run_id=self.run_id,
             first_event_sequence=events_recorded,

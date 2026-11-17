@@ -25,7 +25,7 @@ from trading_desk.models import Model, RiskLimits
 from trading_desk.paper.journal import Journal
 from trading_desk.paper.venue import PaperVenue
 from trading_desk.tools.historical_data import preload_history
-from trading_desk.tools.market_data import MarketDataProvider
+from trading_desk.tools.market_data import IntradayBarsProvider, MarketDataProvider
 
 CAVEATS = [
     "Paper simulation on daily bars: no market impact, queue position or intraday path.",
@@ -135,6 +135,7 @@ async def run_backtest(
     limits: RiskLimits = DEFAULT_RISK_LIMITS,
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     journal: Journal | None = None,
+    intraday_provider: IntradayBarsProvider | None = None,
 ) -> BacktestReport:
     """Score the desk over `[start, split)` and, only when asked, over `[split, end]`."""
     if split is not None and not (start < split <= end):
@@ -170,6 +171,7 @@ async def run_backtest(
             limits=limits,
             setup_rules=setup_rules,
             journal=journal,
+            intraday_provider=intraday_provider,
         )
         return compute_metrics(engine_result, market_profile, benchmark_history.candles)
 

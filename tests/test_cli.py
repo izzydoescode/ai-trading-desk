@@ -995,3 +995,37 @@ def test_shorts_need_a_bearish_market_by_default_and_the_rule_can_be_changed(mon
         )
         assert chosen_rules.market_trend_rule.value == choice
         assert len(chosen_rules.allowed_sides) == 2
+
+
+def test_minute_bars_are_used_automatically_only_beside_alpaca_daily_bars(monkeypatch, tmp_path):
+    """Verifies: --intraday auto means Alpaca minute bars when the daily bars are Alpaca's and
+    none otherwise; asking for them beside another source is refused, because the two price
+    series would not be adjusted the same way.
+    """
+    import httpx
+
+    from trading_desk import cli
+
+    client = httpx.AsyncClient()
+    offline = parse_resolved(monkeypatch, "desk", "backtest", "--start", "2025-01-02T00:00:00Z")
+    assert offline.intraday == "none"
+    assert cli.build_intraday_provider(offline, client) is None
+    assert cli.build_intraday_provider(parse_resolved(monkeypatch, "desk", "scan"), client) is None
+
+    monkeypatch.setenv("ALPACA_API_KEY_ID", "PKTESTKEYID0000000001")
+    monkeypatch.setenv("ALPACA_API_SECRET_KEY", "test-secret-key-0001")
+    with_alpaca = parse_resolved(
+        monkeypatch, "desk", "serve", "--cache-dir", str(tmp_path / "cache")
+    )
+    assert (with_alpaca.source, with_alpaca.intraday) == ("alpaca", "alpaca")
+    intraday_provider = cli.build_intraday_provider(with_alpaca, client)
+    assert intraday_provider.name == "alpaca-1min-iex"
+    assert intraday_provider.cache_directory == tmp_path / "cache"
+
+    switched_off = parse_resolved(monkeypatch, "desk", "serve", "--intraday", "none")
+    assert cli.build_intraday_provider(switched_off, client) is None
+    mismatched = parse_resolved(
+        monkeypatch, "desk", "serve", "--source", "fixture", "--intraday", "alpaca"
+    )
+    with pytest.raises(ValueError, match="needs --source alpaca"):
+        cli.build_intraday_provider(mismatched, client)
