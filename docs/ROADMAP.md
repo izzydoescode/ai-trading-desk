@@ -20,11 +20,12 @@ The short side is built (see "Both sides" in `CLAUDE.md`) and is off by default 
 - Until that is tested, the desk runs long-only unless `--sides both` or `--sides short` is passed.
 - Borrow fees and margin interest are not modelled; add them before trusting any short result.
 
-### Live polling on Alpaca
+### Live polling: what is left
 
-Alpaca is now the default source for daily bars and news when its keys are set (Finnhub is the news backup), and the desk is long-only by default. Bars are stamped at the session close and an unfinished session is never returned, which settles how a forming daily bar is treated: it is ignored until it closes. No order is sent to any broker: every trade is simulated by the desk's own paper venue.
+Live polling is built (see "Desk server" in `CLAUDE.md`): GO LIVE in the terminal, or `LIVE` on its command line, polls Alpaca, acts once on each newly completed daily session and shows the latest traded prices in between. Alpaca is the default source for bars and news when its keys are set, with Finnhub as the news backup.
 
-- Still to build: a session mode that polls Alpaca, evaluates each newly completed session once, and shows the latest traded prices between closes.
+- A queued idea is filled at the next session's open, but the desk only learns that open when the day's bar completes, so the fill shows up after the close. Filling at 09:30 from the opening print would need Alpaca's intraday data.
+- A live run does not survive a server restart: the paper account starts again. Restoring it from the journal is not built.
 - Cost: $0 on Alpaca's free market-data plan (IEX feed). The paid SIP feed has a monthly fee that has not been checked.
 
 ### Intraday resolution of ambiguous bars
@@ -49,6 +50,13 @@ Today bearish news or one-sided hype can only make the desk wait; bullish news n
 
 - First, at no added risk: use agreement between news, sentiment and the setup to rank which approved idea to take when there are several.
 - Then, only if the records show it helps: let agreement adjust position size within the existing risk limits.
+
+### Filings, transcripts and research for SNOWDEN
+
+**After real money (owner's decision, 2026-11-17).** Finnhub has a filings search API covering SEC, SEDAR, UK Companies House and other global filings, earnings-call transcripts, press releases and research reports. SNOWDEN could then read the source document behind a headline instead of the headline alone.
+
+- Cost: not confirmed. Finnhub's page for it could not be read by a script and no price was found; check the plan it needs before starting.
+- Finnhub, Alpha Vantage and Alpaca each publish an MCP server. Those give an AI assistant tools in a chat; the desk itself calls the vendors' REST APIs, so they are not needed to build this.
 
 ### Other markets
 
