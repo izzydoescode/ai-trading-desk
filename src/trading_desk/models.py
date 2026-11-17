@@ -258,6 +258,9 @@ class TradeSetup(Model):
     target: float = Field(gt=0)
     confirmation: str = Field(min_length=1)
     invalidation: str = Field(min_length=1)
+    # True when the exit is "the next touch of the upper Bollinger band": the target then
+    # moves with the band each session instead of staying at the price set on entry.
+    target_follows_upper_band: bool = False
 
     @model_validator(mode="after")
     def coherent_levels(self) -> Self:
@@ -276,6 +279,9 @@ class ChartReport(Model):
 
     thesis: Analysis
     counter_case: Analysis
+    # The overall trend decides which side NEO may trade: BULLISH allows longs only,
+    # BEARISH allows shorts only, anything else allows nothing.
+    trend: Classification = Classification.INSUFFICIENT_DATA
     support: float | None = Field(default=None, gt=0)
     resistance: float | None = Field(default=None, gt=0)
     # One line per pattern considered: why it triggered or what was missing.
@@ -394,6 +400,8 @@ class TradePlan(Model):
 
     symbol: str
     side: TradeSide
+    # The entry pattern that produced the plan, kept so every trade can be reviewed by strategy.
+    strategy: SetupStrategy
     entry_reference: float = Field(gt=0)
     stop: float = Field(gt=0)
     target: float = Field(gt=0)
@@ -401,6 +409,7 @@ class TradePlan(Model):
     notional: float = Field(gt=0)
     risk_amount: float = Field(gt=0)
     reward_to_risk: float = Field(gt=0)
+    target_follows_upper_band: bool = False
 
     @model_validator(mode="after")
     def coherent_levels(self) -> Self:
@@ -546,6 +555,8 @@ class Position(Model):
     entry_commission: float = Field(ge=0)
     entry_slippage_cost: float = Field(ge=0)
     planned_risk_amount: float = Field(gt=0)
+    strategy: SetupStrategy
+    target_follows_upper_band: bool = False
 
 
 class ClosedTrade(Model):

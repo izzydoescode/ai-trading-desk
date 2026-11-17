@@ -37,6 +37,7 @@ from trading_desk.observability import get_logger
 from trading_desk.paper.journal import Journal
 from trading_desk.paper.venue import PaperVenue
 from trading_desk.tools.historical_data import preload_history
+from trading_desk.tools.indicators import bollinger_bands
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
@@ -188,6 +189,7 @@ async def run_engine(
     )
 
     bars_by_symbol: dict[str, dict[datetime, Candle]] = {}
+    closes_by_symbol: dict[str, list[tuple[datetime, float]]] = {}
     for symbol in symbols:
         history = await preloaded_provider.fetch(symbol)
         if history.errors or not history.candles:
@@ -200,6 +202,7 @@ async def run_engine(
             )
             continue
         bars_by_symbol[symbol] = {candle.timestamp: candle for candle in history.candles}
+        closes_by_symbol[symbol] = [(candle.timestamp, candle.close) for candle in history.candles]
     timeline = sorted(
         {
             timestamp
@@ -251,6 +254,22 @@ async def run_engine(
             symbol for symbol in bars_by_symbol if bar_time in bars_by_symbol[symbol]
         ]
         for symbol in symbols_with_a_bar:
+            position = venue.positions.get(symbol)
+            if position is not None and position.target_follows_upper_band:
+                # "Exit at the next touch of the upper band": rest the target at the band
+                # as it stood after the PREVIOUS session, a level known before this bar opens.
+                closes_before_this_bar = [
+                    close for timestamp, close in closes_by_symbol[symbol] if timestamp < bar_time
+                ]
+                upper_band, _ = bollinger_bands(closes_before_this_bar)
+                if upper_band is not None and venue.move_target(symbol, upper_band):
+                    logger.debug(
+                        "run_id=%s bar=%s symbol=%s target moved to upper band %.4f",
+                        run_id,
+                        bar_time.isoformat(),
+                        symbol,
+                        upper_band,
+                    )
             for venue_event in venue.process_bar(symbol, bars_by_symbol[symbol][bar_time]):
                 recorder.emit_venue_event(venue_event)
         record_new_trades()

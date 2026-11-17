@@ -84,6 +84,7 @@ def make_sentiment_report(verdict=Classification.NEUTRAL, hype_risk=HypeRisk.LOW
 def make_trade_plan():
     """Test helper (not a test): builds trade plan for the tests below."""
     return TradePlan(
+        strategy="TREND_CONTINUATION",
         symbol="AAPL",
         side=TradeSide.LONG,
         entry_reference=100.0,

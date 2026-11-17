@@ -5,13 +5,19 @@ priority. The first one whose trigger is met supplies the entry reference, stop
 and target; the others are recorded with what they were missing, so the report
 shows what NEO looked for and not only what it found.
 
+The overall trend decides the side. In a bullish trend (SMA20 above SMA50 with the
+close above SMA50) NEO takes long setups only. In a bearish trend it would take
+short setups only; shorts are not built yet, so a bearish trend produces no setup.
+With no clear trend NEO takes nothing.
+
 1. BREAKOUT: the close clears the highest high of a prior window (a year, 55
    sessions or 20 sessions, longest first) on a volume surge. A breakout without
    volume is not taken.
 2. TREND_CONTINUATION: close above SMA20 above SMA50.
-3. BOLLINGER_REVERSION: the session touches or crosses the lower Bollinger band
-   while the close is still above SMA50; the target is the upper band or the
-   20-session high, whichever is nearer.
+3. BOLLINGER_REVERSION: in a bullish trend a touch or cross of the lower band is
+   the entry and the next touch of the upper band is the exit, so the target
+   follows the upper band from session to session. (In a bearish trend the roles
+   swap: the upper band is the short entry and the lower band the exit.)
 
 These are uncalibrated rules. Whether any of them has an edge is a question for
 the backtest, and ODIN still decides whether the reward justifies the risk.
@@ -55,6 +61,23 @@ class SetupRules(Model):
 DEFAULT_SETUP_RULES = SetupRules()
 
 Levels = tuple[float, float, float, str, str]  # entry, stop, target, confirmation, invalidation
+
+
+def overall_trend(indicators: Indicators) -> Classification:
+    """Classify the trend that decides which side NEO may trade.
+
+    BULLISH: SMA20 above SMA50 and the close above SMA50. BEARISH: SMA20 below SMA50
+    and the close below SMA50. NEUTRAL when the two disagree. INSUFFICIENT_DATA when
+    any of the three is unavailable.
+    """
+    close, sma20, sma50 = indicators.close, indicators.sma20, indicators.sma50
+    if close is None or sma20 is None or sma50 is None:
+        return Classification.INSUFFICIENT_DATA
+    if sma20 > sma50 and close > sma50:
+        return Classification.BULLISH
+    if sma20 < sma50 and close < sma50:
+        return Classification.BEARISH
+    return Classification.NEUTRAL
 
 
 def _breakout(indicators: Indicators, rules: SetupRules) -> tuple[Levels | None, str]:
@@ -135,26 +158,19 @@ def _bollinger_reversion(indicators: Indicators, rules: SetupRules) -> tuple[Lev
         return None, "BOLLINGER_REVERSION: bands unavailable."
     if latest_low > lower_band:
         return None, f"BOLLINGER_REVERSION: low did not reach the lower band {lower_band:.4f}."
-    if indicators.sma50 is None or close <= indicators.sma50:
-        return None, (
-            "BOLLINGER_REVERSION: lower band touched, but the close is not above SMA50; "
-            "a touch in a downtrend is not bought."
-        )
     stop = min(latest_low, lower_band) - rules.reversion_stop_atr_buffer * indicators.atr14
-    resistance = indicators.high20
-    target = min(upper_band, resistance) if resistance is not None else upper_band
+    target = upper_band
     if not stop < close < target:
-        return None, "BOLLINGER_REVERSION: lower band touched, but no room left to the target."
-    target_name = "upper band" if target == upper_band else "20-session high"
+        return None, "BOLLINGER_REVERSION: lower band touched, but no room left to the upper band."
     return (
         close,
         stop,
         target,
-        f"Lower Bollinger band {lower_band:.4f} touched with the close still above SMA50; "
-        f"target is the {target_name} {target:.4f}.",
+        f"Bullish trend and the lower Bollinger band {lower_band:.4f} was touched: entry. "
+        f"Exit is the next touch of the upper band, now {target:.4f}; it moves with the band.",
         f"A close below {stop:.4f} ({rules.reversion_stop_atr_buffer:g} ATR under the low that "
         "touched the band) means the bounce failed.",
-    ), "BOLLINGER_REVERSION: triggered at the lower band."
+    ), "BOLLINGER_REVERSION: triggered at the lower band in a bullish trend."
 
 
 def analyze_chart(
@@ -181,7 +197,18 @@ def analyze_chart(
     )
     chosen: tuple[SetupStrategy, Levels] | None = None
     strategy_notes: list[str] = []
-    if data_is_usable:
+    trend = overall_trend(indicators)
+    if data_is_usable and trend is Classification.BEARISH:
+        strategy_notes.append(
+            "Trend is bearish (SMA20 below SMA50, close below SMA50): only short setups "
+            "apply, and shorts are not built yet. No long is taken against the trend."
+        )
+    elif data_is_usable and trend is not Classification.BULLISH:
+        strategy_notes.append(
+            "No clear trend (SMA20 and the close disagree about SMA50): nothing is taken "
+            "until the trend is bullish or bearish."
+        )
+    if data_is_usable and trend is Classification.BULLISH:
         for strategy in setup_rules.enabled_strategies:
             if strategy is SetupStrategy.BREAKOUT:
                 levels, note = _breakout(indicators, setup_rules)
@@ -201,22 +228,26 @@ def analyze_chart(
         return ChartReport(
             thesis=thesis,
             counter_case=counter_case,
+            trend=trend,
             strategy_notes=strategy_notes,
             support=indicators.low20,
             resistance=indicators.high20,
             watch_for=(
-                "A volume-backed close above a prior high, a close above SMA20 above SMA50, "
-                "or a touch of the lower Bollinger band while above SMA50."
+                "A bullish trend (SMA20 above SMA50, close above SMA50) with a volume-backed "
+                "close above a prior high, a close above SMA20, or a touch of the lower "
+                "Bollinger band."
             ),
         )
     strategy, (entry_reference, stop, target, confirmation, invalidation) = chosen
     return ChartReport(
         thesis=thesis,
         counter_case=counter_case,
+        trend=trend,
         strategy_notes=strategy_notes,
         support=indicators.low20,
         resistance=indicators.high20,
         setup=TradeSetup(
+            target_follows_upper_band=strategy is SetupStrategy.BOLLINGER_REVERSION,
             strategy=strategy,
             entry_reference=round(entry_reference, PRICE_DECIMAL_PLACES),
             stop=round(stop, PRICE_DECIMAL_PLACES),

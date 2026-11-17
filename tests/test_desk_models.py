@@ -40,6 +40,7 @@ def make_trade_plan(**overrides):
     values = {
         "symbol": "AAPL",
         "side": TradeSide.LONG,
+        "strategy": "TREND_CONTINUATION",
         "entry_reference": 100.0,
         "stop": 95.0,
         "target": 112.0,

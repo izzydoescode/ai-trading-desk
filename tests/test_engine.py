@@ -284,3 +284,74 @@ async def test_news_feed_is_queried_point_in_time_on_every_decision():
     # Each decision asked for news ending at its own bar, never later.
     assert news_feed.window_ends == decision_times
     assert news_feed.window_ends == sorted(news_feed.window_ends)
+
+
+def make_pullback_candles(pullback=(-1.8, -2.0, -1.6), recovery_sessions=25):
+    """Test helper (not a test): builds an uptrend, a sharp three-day pullback that touches the
+    lower Bollinger band while the trend is still bullish, then a steady recovery.
+    """
+    closes, price = [], 100.0
+    for session in range(70):
+        price += 0.5 if session % 4 else -0.3
+        closes.append(round(price, 2))
+    for change in pullback:
+        price += change
+        closes.append(round(price, 2))
+    for _ in range(recovery_sessions):
+        price += 0.9
+        closes.append(round(price, 2))
+    candles, previous_close, session_date = [], closes[0], FIRST_BAR
+    for close in closes:
+        while session_date.weekday() >= 5:
+            session_date += timedelta(days=1)
+        candles.append(
+            Candle(
+                timestamp=session_date,
+                open=previous_close,
+                high=max(previous_close, close) + 0.4,
+                low=min(previous_close, close) - 0.4,
+                close=close,
+                volume=1_000_000,
+            )
+        )
+        previous_close, session_date = close, session_date + timedelta(days=1)
+    return candles
+
+
+async def test_bollinger_trade_enters_at_the_lower_band_and_exits_at_the_moving_upper_band():
+    """Verifies: in a bullish trend the desk buys the touch of the lower band and sells at the
+    next touch of the upper band, where "the upper band" is the level known before each
+    session, not the price fixed on the day of entry.
+    """
+    from trading_desk.agents.neo import SetupRules
+    from trading_desk.tools.indicators import bollinger_bands
+
+    candles = make_pullback_candles()
+    result, _ = await run(
+        SyntheticProvider({"AAPL": candles}),
+        end=candles[-1].timestamp,
+        setup_rules=SetupRules(enabled_strategies=("BOLLINGER_REVERSION",)),
+        limits=RiskLimits(minimum_reward_to_risk=1.0),
+    )
+    assert len(result.closed_trades) == 1
+    closed_trade = result.closed_trades[0]
+    assert closed_trade.exit_reason is ExitReason.TARGET
+    assert closed_trade.profit_and_loss > 0
+
+    submit_event = events_of(result, "SUBMIT")[0]
+    entry_day_closes = [c.close for c in candles if c.timestamp <= submit_event.timestamp]
+    upper_band_at_entry, lower_band_at_entry = bollinger_bands(entry_day_closes)
+    entry_candle = next(c for c in candles if c.timestamp == submit_event.timestamp)
+    assert entry_candle.low <= lower_band_at_entry  # the entry bar touched the lower band
+
+    exit_candle = next(c for c in candles if c.timestamp == closed_trade.closed_at)
+    closes_before_exit = [c.close for c in candles if c.timestamp < exit_candle.timestamp]
+    upper_band_before_exit, _ = bollinger_bands(closes_before_exit)
+    slippage = US_EQUITIES.slippage_rate
+    # It exited at the band as it stood before the exit session (or the open, on a gap)...
+    expected_exit = max(upper_band_before_exit, exit_candle.open) * (1 - slippage)
+    assert closed_trade.exit_price == pytest.approx(expected_exit)
+    # ...which is a different price from the band on the day of entry.
+    assert upper_band_before_exit != pytest.approx(upper_band_at_entry, abs=0.01)
+    # And it never used a band that included the exit day's own close.
+    assert exit_candle.high >= upper_band_before_exit

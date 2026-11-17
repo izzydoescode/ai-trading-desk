@@ -23,9 +23,10 @@ def make_candle(day, open_price, high, low, close):
     )
 
 
-def make_trade_plan(symbol="AAPL", units=10, entry=100.0, stop=95.0, target=110.0):
+def make_trade_plan(symbol="AAPL", units=10, entry=100.0, stop=95.0, target=110.0, **overrides):
     """Test helper (not a test): builds trade plan for the tests below."""
     return TradePlan(
+        strategy="TREND_CONTINUATION",
         symbol=symbol,
         side=TradeSide.LONG,
         entry_reference=entry,
@@ -35,6 +36,7 @@ def make_trade_plan(symbol="AAPL", units=10, entry=100.0, stop=95.0, target=110.
         notional=units * entry,
         risk_amount=units * (entry - stop),
         reward_to_risk=(target - entry) / (entry - stop),
+        **overrides,
     )
 
 
@@ -233,3 +235,29 @@ def test_only_paper_execution_exists():
         create_venue("live", 1_000.0, US_EQUITIES)
     with pytest.raises(ValueError):
         PaperVenue(0, US_EQUITIES)
+
+
+def test_only_a_band_following_position_lets_its_target_be_moved():
+    """Verifies: a target is moved only for a position whose plan asked for a band exit, so a
+    fixed-target trade can never have its target changed after entry.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=101, low=99.5, close=100))
+    assert paper_venue.move_target("AAPL", 104.0) is False
+    assert paper_venue.positions["AAPL"].target == 110.0
+    assert paper_venue.move_target("MSFT", 104.0) is False  # no such position
+
+    band_venue = make_paper_venue()
+    band_venue.submit(make_trade_plan(target_follows_upper_band=True), DAY_ONE)
+    band_venue.process_bar("AAPL", make_candle(1, open_price=100, high=101, low=99.5, close=100))
+    assert band_venue.move_target("AAPL", 0.0) is False  # a non-positive level is ignored
+    assert band_venue.move_target("AAPL", 104.0) is True
+    assert band_venue.positions["AAPL"].target == 104.0
+    # The next bar reaches the moved target and exits there, not at the original 110.
+    exit_events = band_venue.process_bar(
+        "AAPL", make_candle(2, open_price=101, high=104.5, low=100.5, close=104)
+    )
+    assert [event.reason for event in exit_events] == ["TARGET"]
+    assert band_venue.closed_trades[0].exit_price == pytest.approx(104.0)
+    assert band_venue.closed_trades[0].profit_and_loss > 0
