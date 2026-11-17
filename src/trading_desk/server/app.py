@@ -13,11 +13,13 @@ import asyncio
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime, ConfigDict, Field
 
 from trading_desk.backtest.runner import run_backtest
@@ -75,7 +77,14 @@ def normalise_symbols(symbols: list[str]) -> list[str]:
     return list(dict.fromkeys(normalised_symbols))
 
 
-def create_app(session: DeskSession, default_settings: ReplaySettings) -> FastAPI:
+def create_app(
+    session: DeskSession,
+    default_settings: ReplaySettings,
+    ui_directory: Path | None = None,
+) -> FastAPI:
+    """Build the API. When `ui_directory` holds a built terminal (`web/dist`), it is
+    served at `/` so one process runs the whole desk."""
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
@@ -239,6 +248,11 @@ def create_app(session: DeskSession, default_settings: ReplaySettings) -> FastAP
         finally:
             session.unsubscribe(subscriber_queue)
 
+    if ui_directory is not None:
+        if not (ui_directory / "index.html").is_file():
+            raise ValueError("the terminal UI directory has no index.html; build it first")
+        # Mounted last: API and WebSocket routes above always win.
+        app.mount("/", StaticFiles(directory=ui_directory, html=True), name="terminal")
     return app
 
 

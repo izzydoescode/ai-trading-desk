@@ -249,3 +249,26 @@ def test_backtest_endpoint_scores_in_sample_only(client):
 )
 def test_backtest_endpoint_rejects_bad_windows(client, query):
     assert client.get("/api/backtest", params=query).status_code == 422
+
+
+def test_built_terminal_is_served_at_the_root_without_hiding_the_api(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><title>AI Trading Desk</title>")
+    (tmp_path / "assets" / "app.js").write_text("console.log('desk')")
+    desk_session = DeskSession(FixtureProvider(), sleep=yield_once)
+    with TestClient(create_app(desk_session, DEFAULT_SETTINGS, tmp_path)) as ui_client:
+        home = ui_client.get("/")
+        assert home.status_code == 200
+        assert "AI Trading Desk" in home.text
+        assert ui_client.get("/assets/app.js").text == "console.log('desk')"
+        assert ui_client.get("/api/health").json()["status"] == "ok"
+        assert ui_client.post("/api/replay/start", json={}).status_code == 202
+        assert ui_client.get("/missing.js").status_code == 404
+        with ui_client.websocket_connect("/ws/events") as socket:
+            assert socket.receive_json()["type"] == "snapshot"
+
+
+def test_a_ui_directory_without_a_build_is_refused(tmp_path):
+    desk_session = DeskSession(FixtureProvider(), sleep=yield_once)
+    with pytest.raises(ValueError, match="index.html"):
+        create_app(desk_session, DEFAULT_SETTINGS, tmp_path)

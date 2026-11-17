@@ -61,6 +61,7 @@ DEFAULT_REPLAY_WINDOW = timedelta(days=365)
 FIXTURE_REPLAY_START = datetime(2025, 1, 2, tzinfo=UTC)
 FIXTURE_REPLAY_END = datetime(2025, 4, 23, 22, tzinfo=UTC)
 FIXTURE_SYMBOLS = ["AAPL"]
+DEFAULT_UI_DIRECTORY = Path("web/dist")
 
 
 def markdown(report: Report) -> str:
@@ -234,6 +235,15 @@ def build_replay_settings(args) -> ReplaySettings:
     )
 
 
+def resolve_ui_directory(args) -> Path | None:
+    """The built terminal to serve: the one asked for, else `web/dist` if it exists."""
+    if args.no_ui:
+        return None
+    if args.ui_dir is not None:
+        return args.ui_dir
+    return DEFAULT_UI_DIRECTORY if (DEFAULT_UI_DIRECTORY / "index.html").is_file() else None
+
+
 async def serve_desk(args, replay_settings: ReplaySettings) -> None:
     journal = None
     if args.journal is not None:
@@ -243,7 +253,7 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
         desk_session = DeskSession(build_data_provider(args, client), journal=journal)
         server = uvicorn.Server(
             uvicorn.Config(
-                create_app(desk_session, replay_settings),
+                create_app(desk_session, replay_settings, resolve_ui_directory(args)),
                 host=args.host,
                 port=args.port,
                 log_level="warning",
@@ -272,8 +282,10 @@ def run_serve_command(args) -> int:
             file=sys.stderr,
         )
         return 2
+    ui_directory = resolve_ui_directory(args)
     print(
-        f"Desk API on http://{args.host}:{args.port} (replay of {len(replay_settings.symbols)} "
+        f"Desk {'terminal' if ui_directory else 'API (no built UI found)'} on "
+        f"http://{args.host}:{args.port} (replay of {len(replay_settings.symbols)} "
         "symbol(s), paper venue). Press Ctrl+C to stop.",
         file=sys.stderr,
     )
@@ -359,6 +371,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1", help="Loopback address to listen on")
     serve.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT)
     serve.add_argument("--journal", type=Path, help="SQLite journal file (default: not kept)")
+    serve.add_argument(
+        "--ui-dir", type=Path, help="Built terminal to serve (default: web/dist if present)"
+    )
+    serve.add_argument("--no-ui", action="store_true", help="Serve the API only")
     for model_command in (decide, scan):
         model_command.add_argument(
             "--provider",
