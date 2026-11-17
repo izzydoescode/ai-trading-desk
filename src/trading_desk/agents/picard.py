@@ -89,6 +89,16 @@ def decide(
     )
 
 
+def wait_for_review(approved_decision: Decision, reason: str) -> Decision:
+    """Turn an approved TRADE into WAIT because the model reviewer did not clear it."""
+    return _wait(
+        reason,
+        "A later bar on which the model reviewer approves the idea.",
+        approved_decision.sources + ["MODEL REVIEW blocked"],
+        approved_decision.dissent,
+    )
+
+
 def _wait(
     summary: str, required_confirmation: str, sources: list[str], dissent: list[str]
 ) -> Decision:

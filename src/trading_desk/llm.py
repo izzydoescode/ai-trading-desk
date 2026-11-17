@@ -17,21 +17,13 @@ from typing import Protocol, TypeVar
 
 import anthropic
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from trading_desk.models import Analysis, Model
+from trading_desk.models import Analysis, GateVerdict
 
 PROMPT_VERSION = "2026-11-17"
 MAX_OUTPUT_TOKENS = 2000
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
-
-
-class GateVerdict(Model):
-    """A model's approve-or-veto on a trade the deterministic desk already approved."""
-
-    approve: bool
-    rationale: str = Field(min_length=1, max_length=600)
-    concerns: list[str] = Field(default_factory=list)
 
 
 class ReasoningProvider(Protocol):
