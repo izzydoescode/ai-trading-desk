@@ -175,11 +175,11 @@ def test_desk_decide_honours_the_equity_option(monkeypatch, capsys):
         "--as-of",
         HISTORICAL_EVALUATION_TIME,
         "--equity",
-        "1000",
+        "100",
     )
     desk_report = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert desk_report["account"]["equity"] == 1000
+    assert desk_report["account"]["equity"] == 100
     assert desk_report["decision"]["action"] == "REJECT"
 
 

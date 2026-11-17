@@ -25,7 +25,7 @@ def analysis():
     )
 
 
-def setup(entry_reference=100.0, stop=95.0, target=112.5):
+def setup(entry_reference=100.0, stop=95.0, target=115.0):
     return ChartSetup(
         thesis=analysis(),
         counter_case=analysis(),
@@ -68,31 +68,31 @@ def test_clean_setup_is_approved_and_sized_from_the_loss_limit():
     report = evaluate()
     assert report.verdict is RiskVerdict.APPROVE
     assert all(risk_check.passed for risk_check in report.checks)
-    # 0.25% of 100,000 = 250 of risk; 5 per share => 50 shares.
-    assert report.plan.units == 50
-    assert report.plan.risk_amount == pytest.approx(250.0)
-    assert report.plan.notional == pytest.approx(5000.0)
-    assert report.plan.reward_to_risk == pytest.approx(2.5)
+    # 1% of 100,000 = 1,000 of risk; 5 per share => 200 shares.
+    assert report.plan.units == 200
+    assert report.plan.risk_amount == pytest.approx(1000.0)
+    assert report.plan.notional == pytest.approx(20_000.0)
+    assert report.plan.reward_to_risk == pytest.approx(3.0)
 
 
 def test_trading_costs_reduce_reward_and_increase_risk():
     costly_market = US_EQUITIES.model_copy(update={"commission_rate": 0.0, "slippage_rate": 0.005})
-    # Round trip cost = 1% of 100 = 1.00 per share: risk 6, reward 11.5.
+    # Round trip cost = 1% of 100 = 1.00 per share: risk 6, reward 14.
     report = evaluate(market=costly_market)
     assert report.verdict is RiskVerdict.REVISE
-    assert check(report, odin.REWARD_TO_RISK_CHECK).actual == "1.92"
+    assert check(report, odin.REWARD_TO_RISK_CHECK).actual == "2.33"
 
 
 def test_units_are_rounded_down_so_risk_never_exceeds_the_limit():
     report = evaluate(chart_setup=setup(stop=93.0, target=120.0))
-    assert report.plan.units == 35  # 250 / 7 = 35.7
-    assert report.plan.risk_amount <= 250.0
+    assert report.plan.units == 142  # 1,000 / 7 = 142.9
+    assert report.plan.risk_amount <= 1000.0
 
 
 def test_fractional_markets_keep_fractional_units():
     fractional_market = NO_COST_MARKET.model_copy(update={"allows_fractional_units": True})
     report = evaluate(chart_setup=setup(stop=93.0, target=120.0), market=fractional_market)
-    assert report.plan.units == pytest.approx(35.714285, abs=1e-6)
+    assert report.plan.units == pytest.approx(142.857142, abs=1e-6)
 
 
 def test_reward_to_risk_below_the_floor_asks_for_a_revision_not_a_trade():
@@ -100,7 +100,7 @@ def test_reward_to_risk_below_the_floor_asks_for_a_revision_not_a_trade():
     assert report.verdict is RiskVerdict.REVISE
     assert report.plan is None
     assert report.failed_checks == [odin.REWARD_TO_RISK_CHECK]
-    assert "at least 2.00" in report.revision
+    assert "at least 2.75" in report.revision
 
 
 def test_kill_switch_rejects_everything():
@@ -130,7 +130,7 @@ def test_missing_levels_are_rejected_for_lack_of_an_invalidation():
 
 
 def test_daily_loss_budget_counts_realised_losses_and_open_stops():
-    # Budget 1,000; 600 lost and 300 at risk leaves 100 => 20 shares instead of 50.
+    # Budget 1,000; 600 lost and 300 at risk leaves 100 => 20 shares instead of 200.
     report = evaluate(
         account_snapshot=account(realized_loss_today=600.0, open_risk_amount=300.0),
         limits=RiskLimits(maximum_open_ideas=3),
@@ -147,7 +147,7 @@ def test_exhausted_daily_loss_budget_rejects():
 
 
 def test_position_is_capped_by_its_share_of_equity():
-    # A 0.5 stop would size 500 shares (50,000); the 20% cap allows 200.
+    # A 0.5 stop would size 2,000 shares (200,000); the 20% cap allows 200.
     report = evaluate(chart_setup=setup(stop=99.5, target=102.0))
     assert report.plan.units == 200
     assert report.plan.notional == pytest.approx(20_000.0)
@@ -160,6 +160,6 @@ def test_position_never_uses_more_cash_than_the_account_holds():
 
 
 def test_account_too_small_for_one_unit_is_rejected():
-    report = evaluate(account_snapshot=account(equity=1_000.0, cash=1_000.0))
+    report = evaluate(account_snapshot=account(equity=400.0, cash=400.0))
     assert report.verdict is RiskVerdict.REJECT
     assert "Position size" in report.failed_checks

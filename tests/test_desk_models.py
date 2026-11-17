@@ -168,8 +168,8 @@ def test_decision_outcomes_must_be_explained():
 
 def test_risk_limits_default_to_the_beginner_rules_and_are_immutable():
     limits = RiskLimits()
-    assert limits.max_loss_per_idea_fraction == 0.0025
-    assert limits.minimum_reward_to_risk == 2.0
+    assert limits.max_loss_per_idea_fraction == 0.01
+    assert limits.minimum_reward_to_risk == 2.75
     assert limits.maximum_open_ideas == 1
     assert not limits.kill_switch_engaged
     with pytest.raises(ValidationError):
