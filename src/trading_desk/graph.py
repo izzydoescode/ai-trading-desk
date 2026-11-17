@@ -4,7 +4,7 @@ import asyncio
 import logging
 import operator
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Annotated, TypedDict
 from uuid import uuid4
@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 
 from trading_desk.agents import contrarian, synthesis, technical
 from trading_desk.llm import ReasoningProvider
+from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import Analysis, Classification, Indicators, MarketData, Report, Trace
 from trading_desk.tools.indicators import calculate
 from trading_desk.tools.market_data import MarketDataProvider
@@ -34,7 +35,11 @@ class State(TypedDict, total=False):
     trace: Annotated[list[Trace], operator.add]
 
 
-def build_graph(data_provider: MarketDataProvider, llm: ReasoningProvider | None = None):
+def build_graph(
+    data_provider: MarketDataProvider,
+    llm: ReasoningProvider | None = None,
+    market_profile: MarketProfile = US_EQUITIES,
+):
     def trace(
         state: State,
         agent: str,
@@ -96,20 +101,27 @@ def build_graph(data_provider: MarketDataProvider, llm: ReasoningProvider | None
             limitations.append("Synthetic scenario: not actual AAPL prices or investment research.")
         if "unadjusted" in data.source:
             limitations.append("Unadjusted prices: splits/dividends can distort indicators.")
-        if len(data.candles) < 50:
+        minimum_history_candles = market_profile.minimum_history_candles
+        if len(data.candles) < minimum_history_candles:
             blockers.append(
-                f"Need 50 valid candles; received {len(data.candles)}; "
-                f"missing {max(0, 50 - len(data.candles))} for SMA50."
+                f"Need {minimum_history_candles} valid candles; received {len(data.candles)}; "
+                f"missing {minimum_history_candles - len(data.candles)} for SMA50."
             )
         if data.candles:
             age = state["as_of"] - data.candles[-1].timestamp
-            if age > timedelta(days=5):
+            if age > market_profile.maximum_data_age:
                 blockers.append(f"Stale daily data: latest candle is {age.days} calendar days old.")
+            maximum_candle_gap = market_profile.maximum_candle_gap
             if any(
-                b.timestamp - a.timestamp > timedelta(days=5)
-                for a, b in zip(data.candles, data.candles[1:], strict=False)
+                later_candle.timestamp - earlier_candle.timestamp > maximum_candle_gap
+                for earlier_candle, later_candle in zip(
+                    data.candles, data.candles[1:], strict=False
+                )
             ):
-                blockers.append("Daily series contains a gap longer than five calendar days.")
+                blockers.append(
+                    f"Daily series contains a gap longer than {maximum_candle_gap.days} "
+                    "calendar days."
+                )
         return {
             "blockers": blockers,
             "limitations": limitations,
@@ -204,6 +216,7 @@ async def run_research(
     data_provider: MarketDataProvider,
     llm: ReasoningProvider | None = None,
     as_of: datetime | None = None,
+    market_profile: MarketProfile = US_EQUITIES,
 ) -> Report:
     symbol = symbol.upper().strip()
     if not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,14}", symbol):
@@ -213,7 +226,7 @@ async def run_research(
         raise ValueError("Evaluation timestamp must include a timezone")
     if as_of > datetime.now(UTC):
         raise ValueError("Evaluation timestamp cannot be in the future")
-    state = await build_graph(data_provider, llm).ainvoke(
+    state = await build_graph(data_provider, llm, market_profile).ainvoke(
         {"run_id": str(uuid4()), "symbol": symbol, "as_of": as_of, "trace": []}
     )
     dissent = []
