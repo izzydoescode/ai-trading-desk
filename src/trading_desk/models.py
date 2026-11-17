@@ -272,6 +272,10 @@ class NewsReport(Model):
     commentary: list[NewsItem] = Field(default_factory=list)
     red_flags: list[str] = Field(default_factory=list)
     missing_information: list[str] = Field(default_factory=list)
+    # Headline tone counts behind a BULLISH or BEARISH verdict; None when tone was not read.
+    bullish_headline_count: int | None = Field(default=None, ge=0)
+    bearish_headline_count: int | None = Field(default=None, ge=0)
+    neutral_headline_count: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def abstention_consistency(self) -> Self:
