@@ -351,6 +351,14 @@ class Decision(Model):
         return self
 
 
+class GateVerdict(Model):
+    """A model's approve-or-veto on a trade the deterministic desk already approved."""
+
+    approve: bool
+    rationale: str = Field(min_length=1, max_length=600)
+    concerns: list[str] = Field(default_factory=list)
+
+
 class DeskReport(Model):
     """One complete six-agent decision for one symbol at one evaluation time."""
 
@@ -372,6 +380,7 @@ class DeskReport(Model):
     sentiment: SentimentReport
     risk: RiskReport
     decision: Decision
+    model_review: GateVerdict | None = None
     limitations: list[str]
     trace: list[Trace]
     purpose: str = "Paper trading research only; no real orders and no investment advice."

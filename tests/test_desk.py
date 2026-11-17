@@ -11,6 +11,7 @@ from trading_desk.models import (
     Classification,
     DecisionAction,
     DeskReport,
+    GateVerdict,
     HypeRisk,
     NewsItem,
     RiskLimits,
@@ -171,3 +172,67 @@ async def test_scan_ranks_reports_with_watched_symbols_first():
     assert [report.symbol for report in reports] == ["AAPL", "MSFT"]
     assert reports[0].scout.verdict is ScoutVerdict.WATCH
     assert reports[1].scout.verdict is ScoutVerdict.NEED_MORE_DATA
+
+
+class ScriptedReviewer:
+    """Fake model reviewer: returns a scripted verdict or raises a scripted error."""
+
+    name = "fake:reviewer"
+
+    def __init__(self, verdict=None, error=None):
+        self.verdict, self.error, self.contexts = verdict, error, []
+
+    async def review_trade(self, context):
+        self.contexts.append(context)
+        if self.error:
+            raise self.error
+        return self.verdict
+
+
+async def test_model_approval_leaves_the_plan_untouched():
+    reviewer = ScriptedReviewer(GateVerdict(approve=True, rationale="Reports agree."))
+    report = await decide(llm=reviewer)
+    assert report.mode == "llm"
+    assert report.decision.action is DecisionAction.TRADE
+    assert report.decision.plan == report.risk.plan
+    assert report.model_review.approve
+    picard_trace = next(entry for entry in report.trace if entry.agent == "picard")
+    assert picard_trace.provider == "fake:reviewer"
+    context = reviewer.contexts[0]
+    assert context["plan"]["units"] == report.risk.plan.units
+    assert "run_id" not in context and "as_of" not in context
+
+
+async def test_model_veto_turns_an_approved_trade_into_a_wait():
+    reviewer = ScriptedReviewer(GateVerdict(approve=False, rationale="Evidence is thin."))
+    report = await decide(llm=reviewer)
+    assert report.risk.verdict is RiskVerdict.APPROVE
+    assert report.decision.action is DecisionAction.WAIT
+    assert report.decision.plan is None
+    assert "Evidence is thin." in report.decision.summary
+    assert "MODEL REVIEW blocked" in report.decision.sources
+
+
+async def test_model_failure_means_no_trade_and_leaks_nothing():
+    reviewer = ScriptedReviewer(error=RuntimeError("Bearer sk-SECRET"))
+    report = await decide(llm=reviewer)
+    assert report.decision.action is DecisionAction.WAIT
+    assert report.model_review is None
+    assert "sk-SECRET" not in report.model_dump_json()
+    assert any("Model review unavailable: RuntimeError" in text for text in report.limitations)
+
+
+async def test_model_is_never_asked_about_ideas_the_rules_did_not_approve():
+    reviewer = ScriptedReviewer(GateVerdict(approve=True, rationale="Fine."))
+    for scenario in ("conflict", "missing"):
+        report = await decide(scenario, llm=reviewer)
+        assert report.decision.action is not DecisionAction.TRADE
+        assert report.model_review is None
+    assert reviewer.contexts == []
+
+
+async def test_model_cannot_approve_what_the_risk_manager_rejected():
+    reviewer = ScriptedReviewer(GateVerdict(approve=True, rationale="Looks great."))
+    report = await decide(llm=reviewer, limits=RiskLimits(kill_switch_engaged=True))
+    assert report.decision.action is DecisionAction.REJECT
+    assert reviewer.contexts == []

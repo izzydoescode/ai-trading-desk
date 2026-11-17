@@ -11,11 +11,10 @@ from trading_desk.llm import (
     AnthropicProvider,
     CachingReasoningProvider,
     CostCapExceededError,
-    GateVerdict,
     OpenAIProvider,
     UsageMeter,
 )
-from trading_desk.models import Analysis, Classification
+from trading_desk.models import Analysis, Classification, GateVerdict
 
 ABSTAINING_ANALYSIS = Analysis(
     classification=Classification.INSUFFICIENT_DATA,

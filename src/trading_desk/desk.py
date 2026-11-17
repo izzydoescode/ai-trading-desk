@@ -27,12 +27,15 @@ from trading_desk.graph import (
     record_trace,
     validate_request,
 )
+from trading_desk.llm import ReasoningProvider
 from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import (
     AccountSnapshot,
     ChartSetup,
     Decision,
+    DecisionAction,
     DeskReport,
+    GateVerdict,
     Indicators,
     MarketData,
     NewsItem,
@@ -46,6 +49,7 @@ from trading_desk.models import (
 from trading_desk.tools.market_data import MarketDataProvider
 
 RULES_PROVIDER_NAME = "deterministic-rules"
+MODEL_REVIEW_TIMEOUT_SECONDS = 100
 ANALYST_NODE_NAMES = ["hawkeye", "neo", "snowden", "fama"]
 DEFAULT_RISK_LIMITS = RiskLimits()
 
@@ -67,6 +71,7 @@ class DeskState(TypedDict, total=False):
     sentiment: SentimentReport
     risk: RiskReport
     decision: Decision
+    model_review: GateVerdict | None
     # Written by parallel nodes, so it needs an append reducer.
     trace: Annotated[list[Trace], operator.add]
 
@@ -76,6 +81,7 @@ def build_desk_graph(
     market_profile: MarketProfile = US_EQUITIES,
     limits: RiskLimits = DEFAULT_RISK_LIMITS,
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
+    llm: ReasoningProvider | None = None,
 ):
     def trace(state: DeskState, agent: str, start: float, error: str | None = None) -> list[Trace]:
         return record_trace(state["run_id"], agent, start, error, RULES_PROVIDER_NAME)
@@ -135,12 +141,37 @@ def build_desk_graph(
         )
         return {"risk": risk_report, "trace": trace(state, "odin", start)}
 
-    def run_picard(state: DeskState):
+    async def run_picard(state: DeskState):
         start = perf_counter()
         decision = picard.decide(
             state["scout"], state["chart"], state["news"], state["sentiment"], state["risk"]
         )
-        return {"decision": decision, "trace": trace(state, "picard", start)}
+        # Only an idea the rules already approved is worth a model call, and the
+        # model can only take it away: approve leaves the plan untouched.
+        if llm is None or decision.action is not DecisionAction.TRADE:
+            return {"decision": decision, "trace": trace(state, "picard", start)}
+        try:
+            model_review = await asyncio.wait_for(
+                llm.review_trade(build_review_context(state, decision)),
+                timeout=MODEL_REVIEW_TIMEOUT_SECONDS,
+            )
+            model_review = GateVerdict.model_validate(model_review.model_dump())
+        except Exception as error:
+            # Fail closed: no review means no trade. Record the class, never the text.
+            failure = f"Model review unavailable: {type(error).__name__}"
+            return {
+                "decision": picard.wait_for_review(decision, failure),
+                "trace": record_trace(state["run_id"], "picard", start, failure, llm.name),
+            }
+        if not model_review.approve:
+            decision = picard.wait_for_review(
+                decision, f"Model reviewer vetoed: {model_review.rationale}"
+            )
+        return {
+            "decision": decision,
+            "model_review": model_review,
+            "trace": record_trace(state["run_id"], "picard", start, None, llm.name),
+        }
 
     builder = StateGraph(DeskState)
     for node_name, node in [
@@ -164,6 +195,26 @@ def build_desk_graph(
     return builder.compile()
 
 
+def build_review_context(state: DeskState, decision: Decision) -> dict:
+    """What the model reviewer sees: the reports and the plan, with nothing volatile.
+
+    Run ids and wall-clock times are left out so identical situations hash to the
+    same cache entry.
+    """
+    return {
+        "symbol": state["symbol"],
+        "indicators": state["indicators"].model_dump(),
+        "scout": state["scout"].model_dump(mode="json", exclude={"evidence"}),
+        "chart_thesis": state["chart"].thesis.summary,
+        "chart_counter_case": state["chart"].counter_case.summary,
+        "news": state["news"].model_dump(mode="json"),
+        "sentiment": state["sentiment"].model_dump(mode="json"),
+        "risk_checks": [check.model_dump() for check in state["risk"].checks],
+        "plan": decision.plan.model_dump(mode="json"),
+        "dissent": decision.dissent,
+    }
+
+
 class Desk:
     """A compiled six-agent graph that can decide many symbols and times cheaply.
 
@@ -177,11 +228,13 @@ class Desk:
         market_profile: MarketProfile = US_EQUITIES,
         limits: RiskLimits = DEFAULT_RISK_LIMITS,
         setup_rules: SetupRules = DEFAULT_SETUP_RULES,
+        llm: ReasoningProvider | None = None,
     ):
         self.market_profile = market_profile
         self.limits = limits
         self.setup_rules = setup_rules
-        self.graph = build_desk_graph(data_provider, market_profile, limits, setup_rules)
+        self.llm = llm
+        self.graph = build_desk_graph(data_provider, market_profile, limits, setup_rules, llm)
 
     async def decide(
         self,
@@ -212,7 +265,7 @@ class Desk:
             market=self.market_profile.name,
             analysis_timestamp=datetime.now(UTC),
             evaluated_as_of=as_of,
-            mode="deterministic",
+            mode="llm" if self.llm else "deterministic",
             data=data,
             market_data_timestamp=data.candles[-1].timestamp if data.candles else None,
             indicators=state["indicators"],
@@ -224,6 +277,7 @@ class Desk:
             sentiment=state["sentiment"],
             risk=state["risk"],
             decision=state["decision"],
+            model_review=state.get("model_review"),
             limitations=state["limitations"]
             + state["blockers"]
             + [entry.error for entry in state["trace"] if entry.error],
@@ -259,9 +313,10 @@ async def run_desk_decision(
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     news_items: Sequence[NewsItem] | None = None,
     sentiment_reading: SentimentReading | None = None,
+    llm: ReasoningProvider | None = None,
 ) -> DeskReport:
     """One-off decision: builds a Desk and asks it once."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules)
+    desk = Desk(data_provider, market_profile, limits, setup_rules, llm)
     return await desk.decide(
         symbol, account, as_of, news_items=news_items, sentiment_reading=sentiment_reading
     )
@@ -276,7 +331,8 @@ async def scan_watchlist(
     market_profile: MarketProfile = US_EQUITIES,
     limits: RiskLimits = DEFAULT_RISK_LIMITS,
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
+    llm: ReasoningProvider | None = None,
 ) -> list[DeskReport]:
     """One-off ranked scan of a watchlist."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules)
+    desk = Desk(data_provider, market_profile, limits, setup_rules, llm)
     return await desk.scan(symbols, account, as_of)
