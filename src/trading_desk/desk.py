@@ -47,9 +47,12 @@ from trading_desk.models import (
     Trace,
 )
 from trading_desk.tools.market_data import MarketDataProvider
+from trading_desk.tools.news import NewsFeed
 
 RULES_PROVIDER_NAME = "deterministic-rules"
 MODEL_REVIEW_TIMEOUT_SECONDS = 100
+# Generous: a cold cache queues one rate-limited request per symbol per week.
+NEWS_TIMEOUT_SECONDS = 60
 ANALYST_NODE_NAMES = ["hawkeye", "neo", "snowden", "fama"]
 DEFAULT_RISK_LIMITS = RiskLimits()
 
@@ -82,6 +85,7 @@ def build_desk_graph(
     limits: RiskLimits = DEFAULT_RISK_LIMITS,
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     llm: ReasoningProvider | None = None,
+    news_feed: NewsFeed | None = None,
 ):
     def trace(state: DeskState, agent: str, start: float, error: str | None = None) -> list[Trace]:
         return record_trace(state["run_id"], agent, start, error, RULES_PROVIDER_NAME)
@@ -119,10 +123,28 @@ def build_desk_graph(
         setup = neo.build_setup(state["indicators"], state["blockers"], setup_rules)
         return {"chart": setup, "trace": trace(state, "neo", start)}
 
-    def run_snowden(state: DeskState):
+    async def run_snowden(state: DeskState):
         start = perf_counter()
-        news_report = snowden.report(state.get("news_items"), state["as_of"])
-        return {"news": news_report, "trace": trace(state, "snowden", start)}
+        news_items, error, provider_name = state.get("news_items"), None, RULES_PROVIDER_NAME
+        if news_items is None and news_feed is not None:
+            provider_name = news_feed.name
+            try:
+                # The window ends at the evaluation time: later news did not exist yet.
+                news_items = await asyncio.wait_for(
+                    news_feed.fetch(
+                        state["symbol"], state["as_of"] - snowden.NEWS_LOOKBACK, state["as_of"]
+                    ),
+                    timeout=NEWS_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                # Exception text can contain credential-bearing URLs; record only the class.
+                # SNOWDEN then abstains: a failed feed is never read as "no news".
+                error = f"News retrieval failed: {type(exc).__name__}"
+        news_report = snowden.report(news_items, state["as_of"])
+        return {
+            "news": news_report,
+            "trace": record_trace(state["run_id"], "snowden", start, error, provider_name),
+        }
 
     def run_fama(state: DeskState):
         start = perf_counter()
@@ -229,12 +251,15 @@ class Desk:
         limits: RiskLimits = DEFAULT_RISK_LIMITS,
         setup_rules: SetupRules = DEFAULT_SETUP_RULES,
         llm: ReasoningProvider | None = None,
+        news_feed: NewsFeed | None = None,
     ):
         self.market_profile = market_profile
         self.limits = limits
         self.setup_rules = setup_rules
         self.llm = llm
-        self.graph = build_desk_graph(data_provider, market_profile, limits, setup_rules, llm)
+        self.graph = build_desk_graph(
+            data_provider, market_profile, limits, setup_rules, llm, news_feed
+        )
 
     async def decide(
         self,
@@ -314,9 +339,10 @@ async def run_desk_decision(
     news_items: Sequence[NewsItem] | None = None,
     sentiment_reading: SentimentReading | None = None,
     llm: ReasoningProvider | None = None,
+    news_feed: NewsFeed | None = None,
 ) -> DeskReport:
     """One-off decision: builds a Desk and asks it once."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules, llm)
+    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed)
     return await desk.decide(
         symbol, account, as_of, news_items=news_items, sentiment_reading=sentiment_reading
     )
@@ -332,7 +358,8 @@ async def scan_watchlist(
     limits: RiskLimits = DEFAULT_RISK_LIMITS,
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
     llm: ReasoningProvider | None = None,
+    news_feed: NewsFeed | None = None,
 ) -> list[DeskReport]:
     """One-off ranked scan of a watchlist."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules, llm)
+    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed)
     return await desk.scan(symbols, account, as_of)
