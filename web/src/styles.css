@@ -303,3 +303,63 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8p
 /* long limit text from the server wraps instead of pushing the table wide */
 .risk td.label { white-space: normal; overflow-wrap: anywhere; }
 .risk table { table-layout: auto; }
+
+/* tape */
+.tape { display: flex; align-items: center; gap: 14px; padding: 5px 12px; overflow-x: auto; }
+.tape ul { display: flex; gap: 22px; margin: 0; padding: 0; list-style: none; white-space: nowrap; }
+
+/* floor: seats, speech and the per-bar hand-off */
+.bubble { position: relative; }
+.bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background: var(--ground);
+  border-right: 1px solid var(--agent);
+  border-bottom: 1px solid var(--agent);
+  transform: rotate(45deg);
+}
+.desk-strip { position: relative; overflow: hidden; }
+.hand-off { position: absolute; top: 0; left: 0; width: 28%; height: 100%; background: var(--amber); opacity: 0; }
+.seat-status { font-weight: 600; letter-spacing: 0; margin-left: 4px; }
+.seat-trade .screen { border-color: var(--caution); }
+.seat-reject .screen, .seat-halted .screen { border-color: var(--down); }
+.seat-halted .desk-strip { border-top-color: var(--down); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Each bar, an amber marker crosses the six desks left to right, one seat after another. */
+  .hand-off { animation: hand-off 420ms linear both; animation-delay: calc(var(--seat) * 60ms); }
+  @keyframes hand-off {
+    0% { transform: translateX(-100%); opacity: 0.9; }
+    100% { transform: translateX(360%); opacity: 0.9; }
+  }
+  /* While the desk is running, working agents type and their screens tick. */
+  .floor-working .seat:not(.seat-idle):not(.seat-halted):not(.seat-abstain) .character {
+    animation: typing 520ms steps(2, end) infinite;
+    animation-delay: calc(var(--seat) * 90ms);
+  }
+  @keyframes typing {
+    50% { transform: translateY(-2px); }
+  }
+  .floor-working .seat:not(.seat-idle):not(.seat-halted):not(.seat-abstain) .screen div {
+    animation: ticking 900ms steps(3, end) infinite alternate;
+    animation-delay: calc(var(--bar) * 130ms);
+    transform-origin: bottom;
+  }
+  @keyframes ticking {
+    0% { transform: scaleY(0.55); }
+    100% { transform: scaleY(1.15); }
+  }
+  /* A changed verdict on a card or seat flashes once so the eye catches it. */
+  .status-change { animation: status-change 600ms ease-out; }
+  @keyframes status-change {
+    0% { background: currentColor; }
+    100% { background: transparent; }
+  }
+}
+
+.repeat { color: var(--amber); white-space: nowrap; }

@@ -7,7 +7,9 @@ export function AgentCards({ cards }: { cards: AgentCard[] }) {
         <article key={card.name} className={`panel agent-card agent-${card.name.toLowerCase()}`}>
           <div className="agent-head">
             <h2>{card.name}</h2>
-            <span className={`badge tone-${card.tone}`}>{card.status}</span>
+            <span key={card.status} className={`badge status-change tone-${card.tone}`}>
+              {card.status}
+            </span>
           </div>
           <div className="label small">{card.role}</div>
           <p className="agent-line">{card.line}</p>

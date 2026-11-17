@@ -8,12 +8,14 @@ import { Floor } from "./components/Floor";
 import { Header } from "./components/Header";
 import { Pipeline } from "./components/Pipeline";
 import { RiskPanel } from "./components/RiskPanel";
+import { Tape } from "./components/Tape";
 import {
   agentCards,
   focusSymbol,
   performance,
   pipelineStages,
   priceLevels,
+  tapeQuotes,
   watchlistRows,
 } from "./derive";
 import { useDesk } from "./useDesk";
@@ -43,6 +45,7 @@ export function App() {
         controls={controls}
         notice={state.notice}
       />
+      <Tape quotes={tapeQuotes(desk)} focusedSymbol={symbol} onSelect={controls.select} />
       <AgentCards cards={cards} />
       <div className="analysis">
         <ChartPanel
@@ -56,7 +59,7 @@ export function App() {
           <RiskPanel report={report} />
         </div>
       </div>
-      <Floor cards={cards} />
+      <Floor cards={cards} working={desk?.status === "RUNNING"} barIndex={desk?.bar_index ?? null} />
       <Balance
         account={desk?.account ?? null}
         equityCurve={desk?.equity_curve ?? []}

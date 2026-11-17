@@ -1,13 +1,15 @@
 import { render, screen, within } from "@testing-library/react";
 
-import { performance } from "../derive";
+import { agentCards, performance } from "../derive";
 import { cloneSnapshot, reportWith } from "../test/fixtures";
 import { Balance } from "./Balance";
 import { ChartPanel } from "./ChartPanel";
 import { DecisionPanel } from "./DecisionPanel";
-import { Journal, NewsMood, Watchlist } from "./Feeds";
+import { Journal, journalLines, NewsMood, Watchlist } from "./Feeds";
+import { Floor } from "./Floor";
 import { Header } from "./Header";
 import { RiskPanel } from "./RiskPanel";
+import { Tape } from "./Tape";
 
 const noControls = {
   start: vi.fn(),
@@ -136,19 +138,45 @@ describe("watchlist and journal", () => {
     expect(screen.getByText("NEED DATA")).toHaveClass("tone-caution");
   });
 
-  it("lists the latest events first and colours known agents only", () => {
+  it("lists the latest events first, folds repeats and colours known agents only", () => {
     const recorded = cloneSnapshot().recent_events;
-    const events = [
-      ...recorded.slice(0, 20),
-      recorded.find((event) => event.agent === "PICARD")!,
-      recorded.find((event) => event.kind === "EXIT")!,
-    ];
-    render(<Journal events={events} />);
+    render(<Journal events={recorded} />);
     const rows = screen.getAllByRole("row");
-    expect(rows).toHaveLength(12);
+    expect(rows.length).toBeLessThanOrEqual(12);
     expect(within(rows[0]!).getByText("EXIT")).toBeInTheDocument();
     expect(within(rows[0]!).getByText("VENUE")).not.toHaveClass("agent-text");
-    expect(within(rows[1]!).getByText("PICARD")).toHaveClass("agent-picard");
+    // The weeks the position was held are one line, not one per bar.
+    const held = screen.getByText(/position open/).closest("tr")!;
+    expect(within(held).getByText(/· \d+ bars/)).toBeInTheDocument();
+    expect(screen.getAllByText("PICARD")[0]).toHaveClass("agent-picard");
+  });
+
+  it("only folds lines that are identical and next to each other", () => {
+    const base = cloneSnapshot().recent_events[0]!;
+    const line = (kind: string, reason: string, symbol = "AAPL") => ({ ...base, kind, reason, symbol });
+    const lines = journalLines([
+      line("SKIP", "position_open"),
+      line("SKIP", "position_open"),
+      line("SKIP", "position_open", "MSFT"),
+      line("WAIT", "position_open"),
+      line("SKIP", "position_open"),
+    ]);
+    expect(lines.map((entry) => [entry.event.kind, entry.event.symbol, entry.repeatCount])).toEqual([
+      ["SKIP", "AAPL", 1],
+      ["WAIT", "AAPL", 1],
+      ["SKIP", "MSFT", 1],
+      ["SKIP", "AAPL", 2],
+    ]);
+    expect(journalLines(Array(40).fill(line("SKIP", "x")))).toEqual([
+      { event: expect.anything(), repeatCount: 40 },
+    ]);
+    const distinct = Array.from({ length: 30 }, (_, index) => line("SKIP", `reason ${index}`));
+    expect(journalLines(distinct)).toHaveLength(12);
+    expect(journalLines(distinct, 3).map((entry) => entry.event.reason)).toEqual([
+      "reason 29",
+      "reason 28",
+      "reason 27",
+    ]);
   });
 });
 
@@ -224,5 +252,59 @@ describe("header", () => {
     render(<Header desk={null} connection="connecting" controls={noControls} />);
     expect(screen.getByText("NO DESK")).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveValue("2");
+  });
+});
+
+describe("floor", () => {
+  const cards = agentCards(cloneSnapshot(), "AAPL");
+
+  it("shows what each agent says and its state in words", () => {
+    render(<Floor cards={cards} working={false} barIndex={79} />);
+    const floor = screen.getByRole("region", { name: "Trading floor" });
+    expect(floor).not.toHaveClass("floor-working");
+    expect(within(floor).getByText("who said what on the latest bar")).toBeInTheDocument();
+    for (const card of cards) {
+      expect(within(floor).getByText(card.speech)).toBeInTheDocument();
+    }
+    expect(floor.querySelectorAll(".seat")).toHaveLength(6);
+    expect(floor.querySelectorAll(".hand-off")).toHaveLength(0);
+  });
+
+  it("hands the bar down the line only while the desk is running", () => {
+    const { container, rerender } = render(<Floor cards={cards} working barIndex={12} />);
+    expect(container.querySelector(".floor")).toHaveClass("floor-working");
+    expect(container.querySelectorAll(".hand-off")).toHaveLength(6);
+    expect(screen.getByText("at work · each bar passes down the line")).toBeInTheDocument();
+    rerender(<Floor cards={cards} working barIndex={null} />);
+    expect(container.querySelectorAll(".hand-off")).toHaveLength(0);
+  });
+});
+
+describe("tape", () => {
+  it("renders nothing without quotes", () => {
+    const { container } = render(<Tape quotes={[]} focusedSymbol={null} onSelect={vi.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows each quote with a direction in words and lets the user pick one", async () => {
+    const onSelect = vi.fn();
+    render(
+      <Tape
+        quotes={[
+          { symbol: "AAPL", last: 102, change: 0.02 },
+          { symbol: "MSFT", last: 400, change: -0.011 },
+          { symbol: "NVDA", last: 90, change: null },
+        ]}
+        focusedSymbol="AAPL"
+        onSelect={onSelect}
+      />,
+    );
+    const tape = screen.getByRole("navigation", { name: "Tape" });
+    expect(within(tape).getByText("▲ +2.00%")).toHaveClass("tone-up");
+    expect(within(tape).getByText("▼ -1.10%")).toHaveClass("tone-down");
+    expect(within(tape).getByText("· –")).toHaveClass("tone-dim");
+    expect(within(tape).getByRole("button", { name: "AAPL" })).toHaveAttribute("aria-pressed", "true");
+    within(tape).getByRole("button", { name: "MSFT" }).click();
+    expect(onSelect).toHaveBeenCalledWith("MSFT");
   });
 });
