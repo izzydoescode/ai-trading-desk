@@ -111,12 +111,42 @@ describe("news and mood", () => {
         })}
       />,
     );
-    expect(screen.getByText("VERIFIED FACT")).toBeInTheDocument();
+    expect(screen.getByText("DATED ITEM")).toBeInTheDocument();
     expect(screen.getByText("COMMENTARY")).toBeInTheDocument();
     expect(screen.getByText("Guidance raised")).toBeInTheDocument();
     expect(screen.getByText("! Unverified claim")).toBeInTheDocument();
     expect(screen.getByText(/mood 58 of 100 · hype risk LOW/)).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Mood score 58 out of 100" })).toBeInTheDocument();
+  });
+});
+
+describe("news list length", () => {
+  it("shows the newest four items, counts the rest and names the feed", () => {
+    const item = (index: number) => ({
+      published_at: `2025-03-${String(12 - index).padStart(2, "0")}T12:00:00Z`,
+      source: "Reuters",
+      headline: `Headline ${index}`,
+      url: null,
+      is_commentary: false,
+    });
+    render(
+      <NewsMood
+        newsSource="finnhub-company-news"
+        report={reportWith((report) => {
+          report.news = {
+            ...report.news,
+            abstain: false,
+            summary: "7 dated item(s).",
+            verified_facts: Array.from({ length: 7 }, (_, index) => item(index)),
+          };
+        })}
+      />,
+    );
+    expect(screen.getAllByText("DATED ITEM")).toHaveLength(4);
+    expect(screen.getByText("Headline 3")).toBeInTheDocument();
+    expect(screen.queryByText("Headline 4")).not.toBeInTheDocument();
+    expect(screen.getByText(/\+3 more\. 7 dated item\(s\)\./)).toBeInTheDocument();
+    expect(screen.getByText(/dated sources only · finnhub-company-news/)).toBeInTheDocument();
   });
 });
 

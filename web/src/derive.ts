@@ -151,7 +151,7 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
       status: report.news.abstain ? "ABSTAIN" : "DONE",
       tone: report.news.abstain ? "dim" : "up",
       line: report.news.summary,
-      metricLabel: "VERIFIED",
+      metricLabel: "DATED ITEMS",
       metricValue: report.news.abstain ? MISSING : `${verifiedCount} of ${itemCount}`,
     },
     {

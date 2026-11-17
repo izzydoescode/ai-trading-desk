@@ -192,6 +192,8 @@ export interface Snapshot extends StatusFields {
   run_id: string | null;
   market: string;
   data_source: string;
+  /** Name of the news feed SNOWDEN reads, or null when none is configured. */
+  news_source?: string | null;
   settings: {
     symbols: string[];
     start: string;
