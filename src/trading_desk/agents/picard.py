@@ -6,7 +6,7 @@ recorded as dissent instead of being averaged away.
 """
 
 from trading_desk.models import (
-    ChartSetup,
+    ChartReport,
     Classification,
     Decision,
     DecisionAction,
@@ -23,20 +23,20 @@ from trading_desk.models import (
 
 def decide(
     scout_report: ScoutReport,
-    setup: ChartSetup,
+    chart: ChartReport,
     news_report: NewsReport,
     sentiment_report: SentimentReport,
     risk_report: RiskReport,
 ) -> Decision:
     sources = [
         f"HAWKEYE {scout_report.verdict}",
-        f"NEO thesis {setup.thesis.classification}",
-        f"NEO counter-case {setup.counter_case.classification}",
+        f"NEO thesis {chart.thesis.classification}",
+        f"NEO counter-case {chart.counter_case.classification}",
         f"SNOWDEN {news_report.verdict}",
         f"FAMA {sentiment_report.verdict}",
         f"ODIN {risk_report.verdict}",
     ]
-    dissent = _collect_dissent(setup, news_report, sentiment_report)
+    dissent = _collect_dissent(chart, news_report, sentiment_report)
 
     if risk_report.verdict == RiskVerdict.REJECT:
         failed_rule = ", ".join(risk_report.failed_checks)
@@ -49,7 +49,7 @@ def decide(
         )
     if risk_report.verdict == RiskVerdict.REVISE:
         return _wait("ODIN asked for a revision.", risk_report.revision, sources, dissent)
-    if setup.strategy is SetupStrategy.BOLLINGER_REVERSION:
+    if chart.setup is not None and chart.setup.strategy is SetupStrategy.BOLLINGER_REVERSION:
         # A pullback to the lower band is never a trend-following WATCH, so the scout's
         # gate for it is narrower: usable data and no heavy-volume breakdown.
         has_confirmed_breakdown = any(
@@ -69,7 +69,7 @@ def decide(
             sources,
             dissent,
         )
-    if setup.counter_case.classification == Classification.BEARISH:
+    if chart.counter_case.classification == Classification.BEARISH:
         return _wait(
             "NEO's own counter-case is bearish, so the thesis is contested.",
             "Momentum must cool (RSI14 below 70) while the uptrend holds.",
@@ -126,12 +126,12 @@ def _wait(
 
 
 def _collect_dissent(
-    setup: ChartSetup, news_report: NewsReport, sentiment_report: SentimentReport
+    chart: ChartReport, news_report: NewsReport, sentiment_report: SentimentReport
 ) -> list[str]:
     """Every view that differs from NEO's thesis, and every missing view, stays visible."""
-    thesis_classification = setup.thesis.classification
+    thesis_classification = chart.thesis.classification
     views = [
-        ("NEO counter-case", setup.counter_case.classification, setup.counter_case.summary),
+        ("NEO counter-case", chart.counter_case.classification, chart.counter_case.summary),
         ("SNOWDEN", news_report.verdict, news_report.summary),
         ("FAMA", sentiment_report.verdict, sentiment_report.summary),
     ]

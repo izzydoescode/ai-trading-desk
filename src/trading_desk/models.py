@@ -221,36 +221,50 @@ class SetupStrategy(StrEnum):
     BOLLINGER_REVERSION = "BOLLINGER_REVERSION"
 
 
-class ChartSetup(Model):
-    """NEO: the thesis, its counter-case, and the price levels that define the idea."""
+class TradeSetup(Model):
+    """A complete long idea: the pattern that triggered and all three prices.
 
-    thesis: Analysis
-    counter_case: Analysis
-    # Which entry pattern produced the levels; None when no pattern qualified.
-    strategy: SetupStrategy | None = None
-    # One line per pattern considered: why it triggered or what was missing.
-    strategy_notes: list[str] = Field(default_factory=list)
-    support: float | None = Field(default=None, gt=0)
-    resistance: float | None = Field(default=None, gt=0)
-    entry_reference: float | None = Field(default=None, gt=0)
-    stop: float | None = Field(default=None, gt=0)
-    target: float | None = Field(default=None, gt=0)
+    There is no such thing as a setup without an entry, a stop and a target, so
+    every field is required. When no pattern triggers, NEO's `ChartReport` simply
+    has no setup.
+    """
+
+    strategy: SetupStrategy
+    entry_reference: float = Field(gt=0)
+    stop: float = Field(gt=0)
+    target: float = Field(gt=0)
     confirmation: str = Field(min_length=1)
     invalidation: str = Field(min_length=1)
 
-    @property
-    def has_trade_levels(self) -> bool:
-        return self.entry_reference is not None
-
     @model_validator(mode="after")
     def coherent_levels(self) -> Self:
-        levels = (self.entry_reference, self.stop, self.target)
-        if any(level is None for level in levels) and not all(level is None for level in levels):
-            raise ValueError("entry, stop and target must be supplied together")
-        if self.has_trade_levels and not (self.stop < self.entry_reference < self.target):
+        if not (self.stop < self.entry_reference < self.target):
             raise ValueError("a long setup needs stop < entry < target")
-        if self.has_trade_levels != (self.strategy is not None):
-            raise ValueError("trade levels and the strategy that produced them go together")
+        return self
+
+
+class ChartReport(Model):
+    """NEO's read of the chart: thesis, counter-case, context levels, and a trade
+    setup only when one of its patterns actually triggered.
+
+    A report without a setup is normal and useful: it tells the desk NEO looked,
+    which patterns it checked and why none fired, and what it is watching for.
+    """
+
+    thesis: Analysis
+    counter_case: Analysis
+    support: float | None = Field(default=None, gt=0)
+    resistance: float | None = Field(default=None, gt=0)
+    # One line per pattern considered: why it triggered or what was missing.
+    strategy_notes: list[str] = Field(default_factory=list)
+    setup: TradeSetup | None = None
+    # With no setup: what would have to happen for one to appear.
+    watch_for: str | None = None
+
+    @model_validator(mode="after")
+    def says_what_it_is_waiting_for(self) -> Self:
+        if self.setup is None and not self.watch_for:
+            raise ValueError("a chart report without a setup must say what it is watching for")
         return self
 
 
@@ -452,7 +466,7 @@ class HeadlineTone(Model):
 class DeskReport(Model):
     """One complete six-agent decision for one symbol at one evaluation time."""
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["3.0"] = "3.0"
     run_id: str
     symbol: str
     market: str
@@ -465,7 +479,7 @@ class DeskReport(Model):
     account: AccountSnapshot
     limits: RiskLimits
     scout: ScoutReport
-    chart: ChartSetup
+    chart: ChartReport
     news: NewsReport
     sentiment: SentimentReport
     risk: RiskReport

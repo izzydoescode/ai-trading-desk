@@ -5,11 +5,12 @@ from trading_desk.markets import US_EQUITIES
 from trading_desk.models import (
     AccountSnapshot,
     Analysis,
-    ChartSetup,
+    ChartReport,
     Classification,
     Evidence,
     RiskLimits,
     RiskVerdict,
+    TradeSetup,
 )
 
 NO_COST_MARKET = US_EQUITIES.model_copy(update={"commission_rate": 0.0, "slippage_rate": 0.0})
@@ -26,22 +27,23 @@ def analysis():
 
 
 def setup(entry_reference=100.0, stop=95.0, target=115.0):
-    return ChartSetup(
+    """A chart report carrying a complete trade setup."""
+    return ChartReport(
         thesis=analysis(),
         counter_case=analysis(),
-        strategy="TREND_CONTINUATION",
-        entry_reference=entry_reference,
-        stop=stop,
-        target=target,
-        confirmation="c",
-        invalidation="i",
+        setup=TradeSetup(
+            strategy="TREND_CONTINUATION",
+            entry_reference=entry_reference,
+            stop=stop,
+            target=target,
+            confirmation="c",
+            invalidation="i",
+        ),
     )
 
 
-def setup_without_levels():
-    return ChartSetup(
-        thesis=analysis(), counter_case=analysis(), confirmation="c", invalidation="i"
-    )
+def chart_without_a_setup():
+    return ChartReport(thesis=analysis(), counter_case=analysis(), watch_for="w")
 
 
 def account(**overrides):
@@ -124,7 +126,7 @@ def test_an_open_idea_blocks_a_second_one():
 
 
 def test_missing_levels_are_rejected_for_lack_of_an_invalidation():
-    report = evaluate(chart_setup=setup_without_levels())
+    report = evaluate(chart_setup=chart_without_a_setup())
     assert report.verdict is RiskVerdict.REJECT
     assert report.failed_checks == ["Invalidation level set"]
     assert check(report, "Invalidation level set").actual == "missing"

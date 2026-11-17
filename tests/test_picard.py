@@ -3,7 +3,7 @@ import pytest
 from trading_desk.agents import picard
 from trading_desk.models import (
     Analysis,
-    ChartSetup,
+    ChartReport,
     Classification,
     DecisionAction,
     Evidence,
@@ -16,6 +16,7 @@ from trading_desk.models import (
     ScoutVerdict,
     SentimentReport,
     TradePlan,
+    TradeSetup,
     TradeSide,
 )
 
@@ -42,15 +43,18 @@ def scout_report(verdict=ScoutVerdict.WATCH):
 
 
 def setup(counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"):
-    return ChartSetup(
+    """A chart report carrying a complete trade setup."""
+    return ChartReport(
         thesis=analysis(),
         counter_case=analysis(counter_case),
-        strategy=strategy,
-        entry_reference=100.0,
-        stop=95.0,
-        target=112.5,
-        confirmation="c",
-        invalidation="i",
+        setup=TradeSetup(
+            strategy=strategy,
+            entry_reference=100.0,
+            stop=95.0,
+            target=112.5,
+            confirmation="c",
+            invalidation="i",
+        ),
     )
 
 
@@ -100,7 +104,7 @@ def refusal(verdict, failed_checks, revision=None):
 def decide(**overrides):
     reports = {
         "scout_report": scout_report(),
-        "setup": setup(),
+        "chart": setup(),
         "news_report": news_report(),
         "sentiment_report": sentiment_report(),
         "risk_report": approval(),
@@ -138,7 +142,7 @@ def test_risk_revision_becomes_wait_with_the_requested_change():
     "overrides,expected_text",
     [
         ({"scout_report": scout_report(ScoutVerdict.SKIP)}, "HAWKEYE"),
-        ({"setup": setup(Classification.BEARISH)}, "counter-case"),
+        ({"chart": setup(Classification.BEARISH)}, "counter-case"),
         ({"news_report": news_report(Classification.BEARISH)}, "SNOWDEN"),
         (
             {"sentiment_report": sentiment_report(Classification.BULLISH, HypeRisk.HIGH)},
@@ -167,7 +171,7 @@ def test_disagreement_and_missing_views_are_kept_as_dissent():
 
 def test_full_agreement_records_no_dissent():
     decision = decide(
-        setup=setup(Classification.BULLISH),
+        chart=setup(Classification.BULLISH),
         news_report=news_report(Classification.BULLISH),
         sentiment_report=sentiment_report(Classification.BULLISH),
     )
@@ -192,7 +196,7 @@ def scout_with(verdict, signals=()):
 
 
 def decide_reversion(reversion_scout_report):
-    return decide(scout_report=reversion_scout_report, setup=setup(strategy="BOLLINGER_REVERSION"))
+    return decide(scout_report=reversion_scout_report, chart=setup(strategy="BOLLINGER_REVERSION"))
 
 
 def test_a_reversion_setup_may_trade_without_a_trend_watch_rating():

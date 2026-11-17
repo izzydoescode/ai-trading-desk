@@ -160,7 +160,7 @@ def test_desk_decide_prints_a_six_agent_report(monkeypatch, capsys):
     captured = capsys.readouterr()
     desk_report = json.loads(captured.out)
     assert exit_code == 0
-    assert desk_report["schema_version"] == "2.0"
+    assert desk_report["schema_version"] == "3.0"
     assert desk_report["decision"]["action"] == "TRADE"
     assert desk_report["decision"]["plan"] == desk_report["risk"]["plan"]
     assert "decision=TRADE" in captured.err

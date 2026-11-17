@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from trading_desk.models import (
     Analysis,
-    ChartSetup,
+    ChartReport,
     Classification,
     Decision,
     DecisionAction,
@@ -19,6 +19,7 @@ from trading_desk.models import (
     ScoutVerdict,
     SentimentReport,
     TradePlan,
+    TradeSetup,
     TradeSide,
 )
 
@@ -71,50 +72,58 @@ def test_scout_score_is_required_unless_more_data_is_needed():
         )
 
 
+def trade_setup(**overrides):
+    return TradeSetup(
+        **{
+            "strategy": "TREND_CONTINUATION",
+            "entry_reference": 100.0,
+            "stop": 95.0,
+            "target": 115.0,
+            "confirmation": "c",
+            "invalidation": "i",
+            **overrides,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["strategy", "entry_reference", "stop", "target", "confirmation", "invalidation"],
+)
+def test_a_trade_setup_cannot_exist_without_every_one_of_its_parts(missing_field):
+    complete = trade_setup().model_dump()
+    del complete[missing_field]
+    with pytest.raises(ValidationError):
+        TradeSetup(**complete)
+
+
 @pytest.mark.parametrize(
     "levels",
     [
-        {"entry_reference": 100.0},
-        {"entry_reference": 100.0, "stop": 95.0},
-        {"entry_reference": 100.0, "stop": 105.0, "target": 110.0},
-        {"entry_reference": 100.0, "stop": 95.0, "target": 99.0},
+        {"stop": 105.0},  # stop above entry
+        {"target": 99.0},  # target below entry
+        {"stop": 100.0},  # no risk distance
+        {"target": 100.0},  # no reward distance
+        {"stop": 0.0},
     ],
 )
-def test_chart_setup_rejects_partial_or_incoherent_levels(levels):
+def test_a_long_trade_setup_needs_stop_below_entry_below_target(levels):
     with pytest.raises(ValidationError):
-        ChartSetup(
-            thesis=bullish_analysis(),
-            counter_case=bullish_analysis(),
-            strategy="TREND_CONTINUATION",
-            confirmation="c",
-            invalidation="i",
-            **levels,
-        )
+        trade_setup(**levels)
 
 
-def test_chart_setup_levels_and_strategy_go_together():
-    levels = {"entry_reference": 100.0, "stop": 95.0, "target": 115.0}
-    common = {
-        "thesis": bullish_analysis(),
-        "counter_case": bullish_analysis(),
-        "confirmation": "c",
-        "invalidation": "i",
-    }
-    assert ChartSetup(**common, strategy="BREAKOUT", **levels).has_trade_levels
-    with pytest.raises(ValidationError, match="go together"):
-        ChartSetup(**common, **levels)
-    with pytest.raises(ValidationError, match="go together"):
-        ChartSetup(**common, strategy="BREAKOUT")
-
-
-def test_chart_setup_without_levels_is_valid_and_reports_it():
-    setup = ChartSetup(
-        thesis=bullish_analysis(),
-        counter_case=bullish_analysis(),
-        confirmation="c",
-        invalidation="i",
-    )
-    assert not setup.has_trade_levels
+def test_a_chart_report_may_carry_a_setup_or_say_what_it_is_watching_for():
+    analyses = {"thesis": bullish_analysis(), "counter_case": bullish_analysis()}
+    with_setup = ChartReport(**analyses, setup=trade_setup())
+    assert with_setup.setup.stop == 95.0
+    # No pattern triggered: there is no setup at all, only what NEO is watching for.
+    watching = ChartReport(**analyses, watch_for="A close above SMA20 above SMA50.")
+    assert watching.setup is None
+    # Saying nothing is not allowed: no setup and nothing to watch for is an empty report.
+    with pytest.raises(ValidationError, match="watching for"):
+        ChartReport(**analyses)
+    with pytest.raises(ValidationError, match="watching for"):
+        ChartReport(**analyses, watch_for="")
 
 
 @pytest.mark.parametrize("report_type", [NewsReport, SentimentReport])

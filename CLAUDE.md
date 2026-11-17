@@ -101,6 +101,8 @@ Deterministic code outranks model output at every layer. When changing behaviour
 
 All domain types inherit a base `Model` with `extra="forbid"` and `allow_inf_nan=False`. Validators enforce invariants rather than documenting them: coherent OHLC bounds, strictly chronological unique candles, `abstain == (classification == INSUFFICIENT_DATA)`, non-abstaining analyses must carry evidence, and `Report.classification` must equal the synthesis classification. `Analysis.model_json_schema()` is sent verbatim as the strict structured-output schema to the model, so changes to `Analysis`/`Evidence` change the LLM wire contract. Changing `Report` means bumping `schema_version` and regenerating the files in `examples/`.
 
+NEO's output is a `ChartReport`: thesis, counter-case, support/resistance, one note per strategy considered, and an optional `TradeSetup`. A `TradeSetup` requires its strategy, entry, stop, target, confirmation and invalidation, so a partial setup cannot be constructed; when no pattern triggers the report has `setup=None` and must say what it is `watch_for`. ODIN then fails "Invalidation level set" and the idea is rejected. `DeskReport.schema_version` is `3.0`.
+
 ### Provider boundaries
 
 Both external dependencies are `typing.Protocol`s with a `name` attribute, injected into `build_graph()`:
