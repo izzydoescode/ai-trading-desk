@@ -384,3 +384,81 @@ class DeskReport(Model):
             if self.decision.plan != self.risk.plan:
                 raise ValueError("the decision must carry the risk-approved plan unchanged")
         return self
+
+
+# ---------------------------------------------------------------------------
+# Paper venue contracts.
+# ---------------------------------------------------------------------------
+
+
+class ExitReason(StrEnum):
+    STOP = "STOP"
+    TARGET = "TARGET"
+    END_OF_RUN = "END_OF_RUN"
+    KILL_SWITCH = "KILL_SWITCH"
+
+
+class Position(Model):
+    """An open paper position. The stop and target come from the approved plan."""
+
+    symbol: str
+    units: float = Field(gt=0)
+    entry_price: float = Field(gt=0)
+    stop: float = Field(gt=0)
+    target: float = Field(gt=0)
+    opened_at: AwareDatetime
+    entry_commission: float = Field(ge=0)
+    entry_slippage_cost: float = Field(ge=0)
+    planned_risk_amount: float = Field(gt=0)
+
+
+class ClosedTrade(Model):
+    """A completed round trip with its result in money and in R (multiples of planned risk)."""
+
+    symbol: str
+    units: float = Field(gt=0)
+    entry_price: float = Field(gt=0)
+    exit_price: float = Field(gt=0)
+    opened_at: AwareDatetime
+    closed_at: AwareDatetime
+    exit_reason: ExitReason
+    total_cost: float = Field(ge=0)
+    profit_and_loss: float
+    r_multiple: float
+
+
+class VenueEventKind(StrEnum):
+    SUBMIT = "SUBMIT"
+    FILL = "FILL"
+    CANCEL = "CANCEL"
+    EXIT = "EXIT"
+    HALT = "HALT"
+
+
+class VenueEvent(Model):
+    """Something the venue did, always with the reason it did it."""
+
+    kind: VenueEventKind
+    timestamp: AwareDatetime
+    symbol: str
+    reason: str = Field(min_length=1)
+    price: float | None = None
+    units: float | None = None
+    profit_and_loss: float | None = None
+
+
+class DeskEvent(Model):
+    """One line of the desk's journal: who did what, to which symbol, and why.
+
+    Skips and rejections are recorded too, so the journal shows where candidates
+    are lost as well as which trades were taken.
+    """
+
+    run_id: str
+    sequence: int = Field(ge=0)
+    timestamp: AwareDatetime
+    symbol: str
+    agent: str
+    kind: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    detail: dict[str, str | float | int | bool | None] = Field(default_factory=dict)
