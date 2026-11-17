@@ -29,6 +29,7 @@ def setup(entry_reference=100.0, stop=95.0, target=115.0):
     return ChartSetup(
         thesis=analysis(),
         counter_case=analysis(),
+        strategy="TREND_CONTINUATION",
         entry_reference=entry_reference,
         stop=stop,
         target=target,

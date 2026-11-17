@@ -17,6 +17,7 @@ from trading_desk.models import (
     ScoutReport,
     ScoutVerdict,
     SentimentReport,
+    SetupStrategy,
 )
 
 
@@ -48,7 +49,20 @@ def decide(
         )
     if risk_report.verdict == RiskVerdict.REVISE:
         return _wait("ODIN asked for a revision.", risk_report.revision, sources, dissent)
-    if scout_report.verdict != ScoutVerdict.WATCH:
+    if setup.strategy is SetupStrategy.BOLLINGER_REVERSION:
+        # A pullback to the lower band is never a trend-following WATCH, so the scout's
+        # gate for it is narrower: usable data and no heavy-volume breakdown.
+        has_confirmed_breakdown = any(
+            signal.volume_confirmed and not signal.is_bullish for signal in scout_report.signals
+        )
+        if scout_report.verdict == ScoutVerdict.NEED_MORE_DATA or has_confirmed_breakdown:
+            return _wait(
+                "HAWKEYE flags the pullback as a breakdown or lacks the data to judge it.",
+                "The pullback must hold without a heavy-volume breakdown.",
+                sources,
+                dissent,
+            )
+    elif scout_report.verdict != ScoutVerdict.WATCH:
         return _wait(
             f"HAWKEYE did not put {scout_report.symbol} on watch.",
             "HAWKEYE must rate the symbol WATCH.",

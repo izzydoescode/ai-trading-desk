@@ -213,11 +213,23 @@ class TradeSide(StrEnum):
     LONG = "LONG"
 
 
+class SetupStrategy(StrEnum):
+    """The entry patterns NEO knows. Each has its own trigger, stop and target."""
+
+    BREAKOUT = "BREAKOUT"
+    TREND_CONTINUATION = "TREND_CONTINUATION"
+    BOLLINGER_REVERSION = "BOLLINGER_REVERSION"
+
+
 class ChartSetup(Model):
     """NEO: the thesis, its counter-case, and the price levels that define the idea."""
 
     thesis: Analysis
     counter_case: Analysis
+    # Which entry pattern produced the levels; None when no pattern qualified.
+    strategy: SetupStrategy | None = None
+    # One line per pattern considered: why it triggered or what was missing.
+    strategy_notes: list[str] = Field(default_factory=list)
     support: float | None = Field(default=None, gt=0)
     resistance: float | None = Field(default=None, gt=0)
     entry_reference: float | None = Field(default=None, gt=0)
@@ -237,6 +249,8 @@ class ChartSetup(Model):
             raise ValueError("entry, stop and target must be supplied together")
         if self.has_trade_levels and not (self.stop < self.entry_reference < self.target):
             raise ValueError("a long setup needs stop < entry < target")
+        if self.has_trade_levels != (self.strategy is not None):
+            raise ValueError("trade levels and the strategy that produced them go together")
         return self
 
 
