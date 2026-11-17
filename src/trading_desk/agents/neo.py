@@ -19,7 +19,7 @@ class SetupRules(Model):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
 
     stop_atr_multiple: float = Field(default=2.0, gt=0)
-    target_reward_multiple: float = Field(default=2.5, gt=0)
+    target_reward_multiple: float = Field(default=3.0, gt=0)
 
 
 DEFAULT_SETUP_RULES = SetupRules()
