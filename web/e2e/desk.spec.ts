@@ -34,6 +34,15 @@ test("a replay runs from the first bar to a closed paper trade", async ({ page }
   await expect(page.getByRole("img", { name: /AAPL daily candles/ })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Decision pipeline" }).getByText(/^PICARD /)).toBeVisible();
   await expect(page.getByText("Paper trading only.")).toBeVisible();
+
+  // The review page has the closed trade, and its saved decision opens from the journal.
+  const review = region(page, "Trade review");
+  await expect(review.getByText(/^1W \/ 0L · \+\$/)).toBeVisible();
+  await expect(review.getByRole("table", { name: "BY STRATEGY" }).getByRole("row", { name: /^TREND 1 100%/ })).toBeVisible();
+  await review.getByRole("button", { name: "Why trade 1 was taken" }).click();
+  const decision = review.getByRole("region", { name: "Saved decision" });
+  await expect(decision.getByText("PLANNED ENTRY")).toBeVisible();
+  await expect(decision.getByText(/^ODIN APPROVE:/)).toBeVisible();
 });
 
 test("pause holds the bar and resume carries on to the end", async ({ page }) => {
