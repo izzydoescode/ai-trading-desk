@@ -1,10 +1,18 @@
 import finishedSnapshotJson from "./fixtures/finished-snapshot.json";
 import messageSampleJson from "./fixtures/message-stream.json";
-import type { DeskReport, ServerMessage, Snapshot } from "../types";
+import reviewJson from "./fixtures/review.json";
+import tradeDecisionJson from "./fixtures/trade-decision.json";
+import type { DeskReport, ReviewResponse, ServerMessage, Snapshot } from "../types";
 
 /** Real output captured from the desk server replaying the bundled fixture. */
 export const finishedSnapshot = finishedSnapshotJson as unknown as Snapshot;
 export const messageSample = messageSampleJson as unknown as ServerMessage[];
+
+/** GET /api/review as the server computes it for the fixture's trade and three variants
+ *  of it (a stopped loser, a target winner and a stalled short). */
+export const reviewSample = reviewJson as unknown as ReviewResponse;
+/** The six-agent report the journal kept for the fixture's trade. */
+export const tradeDecisionSample = tradeDecisionJson as unknown as DeskReport;
 
 export function cloneSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
   return { ...structuredClone(finishedSnapshot), ...overrides };

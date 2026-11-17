@@ -1,6 +1,6 @@
 /** The only place that talks to the desk server. */
 
-import type { ServerMessage } from "./types";
+import type { DeskReport, ReviewResponse, ServerMessage } from "./types";
 
 export class ApiError extends Error {}
 
@@ -25,6 +25,32 @@ export async function postControl(path: string, body: object = {}): Promise<void
     // Keep the generic message when the body is not JSON.
   }
   throw new ApiError(detail);
+}
+
+/** GET a JSON resource. Rejects with an ApiError when the server is unreachable or refuses. */
+async function getJson<Payload>(path: string): Promise<Payload> {
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`);
+  } catch {
+    throw new ApiError("The desk server is not reachable.");
+  }
+  if (!response.ok) throw new ApiError(`The desk refused the request (${response.status}).`);
+  try {
+    return (await response.json()) as Payload;
+  } catch {
+    throw new ApiError("The desk sent an answer that could not be read.");
+  }
+}
+
+/** The current run's closed trades with their results and breakdowns. */
+export function fetchReview(): Promise<ReviewResponse> {
+  return getJson<ReviewResponse>("/review");
+}
+
+/** The six-agent report saved when a closed trade was approved. */
+export function fetchTradeDecision(tradeNumber: number): Promise<DeskReport> {
+  return getJson<DeskReport>(`/review/trades/${tradeNumber}/decision`);
 }
 
 export function eventsUrl(location: Pick<Location, "protocol" | "host">): string {

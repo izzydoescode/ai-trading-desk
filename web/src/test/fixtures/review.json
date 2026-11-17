@@ -1,0 +1,305 @@
+{
+ "run_id": "b439df8a-e1a6-4a3e-ad2b-2a102292896e",
+ "review": {
+  "trade_count": 4,
+  "win_count": 2,
+  "loss_count": 2,
+  "win_rate": 0.5,
+  "profit_and_loss": 2580.984,
+  "total_costs": 82.64,
+  "average_win_amount": 1780.67,
+  "average_loss_amount": -490.178,
+  "average_win_r": 2.36125,
+  "average_loss_r": -0.65,
+  "expectancy_r": 0.8556250000000001,
+  "average_bars_held": 12.5,
+  "largest_win": {
+   "symbol": "NVDA",
+   "side": "LONG",
+   "strategy": "TREND_CONTINUATION",
+   "units": 171.0,
+   "entry_price": 115.88861534999998,
+   "exit_price": 125.69002355,
+   "planned_stop": 112.3502,
+   "planned_target": 129.5239,
+   "planned_risk_amount": 754.12,
+   "opened_at": "2025-03-14T21:00:00Z",
+   "closed_at": "2025-04-24T21:00:00Z",
+   "bars_held": 12,
+   "exit_reason": "TARGET",
+   "total_cost": 20.66,
+   "profit_and_loss": 1885.3,
+   "r_multiple": 2.5,
+   "maximum_favorable_excursion_r": 2.9,
+   "maximum_adverse_excursion_r": -0.2
+  },
+  "largest_loss": {
+   "symbol": "MSFT",
+   "side": "LONG",
+   "strategy": "TREND_CONTINUATION",
+   "units": 171.0,
+   "entry_price": 115.88861534999998,
+   "exit_price": 125.69002355,
+   "planned_stop": 112.3502,
+   "planned_target": 129.5239,
+   "planned_risk_amount": 754.12,
+   "opened_at": "2025-03-14T21:00:00Z",
+   "closed_at": "2025-04-24T21:00:00Z",
+   "bars_held": 3,
+   "exit_reason": "STOP",
+   "total_cost": 20.66,
+   "profit_and_loss": -754.12,
+   "r_multiple": -1.0,
+   "maximum_favorable_excursion_r": 0.4,
+   "maximum_adverse_excursion_r": -1.2
+  },
+  "by_strategy": [
+   {
+    "label": "TREND_CONTINUATION",
+    "trade_count": 3,
+    "win_count": 2,
+    "win_rate": 0.6666666666666666,
+    "profit_and_loss": 2807.22,
+    "average_r": 1.2408333333333335,
+    "average_win_amount": 1780.67,
+    "average_loss_amount": -754.12
+   },
+   {
+    "label": "BOLLINGER_REVERSION",
+    "trade_count": 1,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -226.236,
+    "average_r": -0.3,
+    "average_win_amount": null,
+    "average_loss_amount": -226.236
+   }
+  ],
+  "by_symbol": [
+   {
+    "label": "NVDA",
+    "trade_count": 1,
+    "win_count": 1,
+    "win_rate": 1.0,
+    "profit_and_loss": 1885.3,
+    "average_r": 2.5,
+    "average_win_amount": 1885.3,
+    "average_loss_amount": null
+   },
+   {
+    "label": "AAPL",
+    "trade_count": 1,
+    "win_count": 1,
+    "win_rate": 1.0,
+    "profit_and_loss": 1676.04,
+    "average_r": 2.2225,
+    "average_win_amount": 1676.04,
+    "average_loss_amount": null
+   },
+   {
+    "label": "MSFT",
+    "trade_count": 2,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -980.356,
+    "average_r": -0.65,
+    "average_win_amount": null,
+    "average_loss_amount": -490.178
+   }
+  ],
+  "by_side": [
+   {
+    "label": "LONG",
+    "trade_count": 3,
+    "win_count": 2,
+    "win_rate": 0.6666666666666666,
+    "profit_and_loss": 2807.22,
+    "average_r": 1.2408333333333335,
+    "average_win_amount": 1780.67,
+    "average_loss_amount": -754.12
+   },
+   {
+    "label": "SHORT",
+    "trade_count": 1,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -226.236,
+    "average_r": -0.3,
+    "average_win_amount": null,
+    "average_loss_amount": -226.236
+   }
+  ],
+  "by_exit_reason": [
+   {
+    "label": "TARGET",
+    "trade_count": 1,
+    "win_count": 1,
+    "win_rate": 1.0,
+    "profit_and_loss": 1885.3,
+    "average_r": 2.5,
+    "average_win_amount": 1885.3,
+    "average_loss_amount": null
+   },
+   {
+    "label": "END_OF_RUN",
+    "trade_count": 1,
+    "win_count": 1,
+    "win_rate": 1.0,
+    "profit_and_loss": 1676.04,
+    "average_r": 2.2225,
+    "average_win_amount": 1676.04,
+    "average_loss_amount": null
+   },
+   {
+    "label": "STALLED",
+    "trade_count": 1,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -226.236,
+    "average_r": -0.3,
+    "average_win_amount": null,
+    "average_loss_amount": -226.236
+   },
+   {
+    "label": "STOP",
+    "trade_count": 1,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -754.12,
+    "average_r": -1.0,
+    "average_win_amount": null,
+    "average_loss_amount": -754.12
+   }
+  ],
+  "by_holding_time": [
+   {
+    "label": "3-5 sessions",
+    "trade_count": 1,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -754.12,
+    "average_r": -1.0,
+    "average_win_amount": null,
+    "average_loss_amount": -754.12
+   },
+   {
+    "label": "6-10 sessions",
+    "trade_count": 1,
+    "win_count": 0,
+    "win_rate": 0.0,
+    "profit_and_loss": -226.236,
+    "average_r": -0.3,
+    "average_win_amount": null,
+    "average_loss_amount": -226.236
+   },
+   {
+    "label": "11+ sessions",
+    "trade_count": 2,
+    "win_count": 2,
+    "win_rate": 1.0,
+    "profit_and_loss": 3561.34,
+    "average_r": 2.36125,
+    "average_win_amount": 1780.67,
+    "average_loss_amount": null
+   }
+  ],
+  "trades": [
+   {
+    "trade_number": 0,
+    "trade": {
+     "symbol": "AAPL",
+     "side": "LONG",
+     "strategy": "TREND_CONTINUATION",
+     "units": 171.0,
+     "entry_price": 115.88861534999998,
+     "exit_price": 125.69002355,
+     "planned_stop": 112.3502,
+     "planned_target": 129.5239,
+     "planned_risk_amount": 754.12,
+     "opened_at": "2025-03-14T21:00:00Z",
+     "closed_at": "2025-04-23T21:00:00Z",
+     "bars_held": 29,
+     "exit_reason": "END_OF_RUN",
+     "total_cost": 20.66,
+     "profit_and_loss": 1676.04,
+     "r_multiple": 2.2225,
+     "maximum_favorable_excursion_r": 2.9501,
+     "maximum_adverse_excursion_r": -0.1945
+    },
+    "has_saved_decision": true
+   },
+   {
+    "trade_number": 1,
+    "trade": {
+     "symbol": "MSFT",
+     "side": "LONG",
+     "strategy": "TREND_CONTINUATION",
+     "units": 171.0,
+     "entry_price": 115.88861534999998,
+     "exit_price": 125.69002355,
+     "planned_stop": 112.3502,
+     "planned_target": 129.5239,
+     "planned_risk_amount": 754.12,
+     "opened_at": "2025-03-14T21:00:00Z",
+     "closed_at": "2025-04-24T21:00:00Z",
+     "bars_held": 3,
+     "exit_reason": "STOP",
+     "total_cost": 20.66,
+     "profit_and_loss": -754.12,
+     "r_multiple": -1.0,
+     "maximum_favorable_excursion_r": 0.4,
+     "maximum_adverse_excursion_r": -1.2
+    },
+    "has_saved_decision": false
+   },
+   {
+    "trade_number": 2,
+    "trade": {
+     "symbol": "NVDA",
+     "side": "LONG",
+     "strategy": "TREND_CONTINUATION",
+     "units": 171.0,
+     "entry_price": 115.88861534999998,
+     "exit_price": 125.69002355,
+     "planned_stop": 112.3502,
+     "planned_target": 129.5239,
+     "planned_risk_amount": 754.12,
+     "opened_at": "2025-03-14T21:00:00Z",
+     "closed_at": "2025-04-24T21:00:00Z",
+     "bars_held": 12,
+     "exit_reason": "TARGET",
+     "total_cost": 20.66,
+     "profit_and_loss": 1885.3,
+     "r_multiple": 2.5,
+     "maximum_favorable_excursion_r": 2.9,
+     "maximum_adverse_excursion_r": -0.2
+    },
+    "has_saved_decision": false
+   },
+   {
+    "trade_number": 3,
+    "trade": {
+     "symbol": "MSFT",
+     "side": "SHORT",
+     "strategy": "BOLLINGER_REVERSION",
+     "units": 171.0,
+     "entry_price": 115.88861534999998,
+     "exit_price": 125.69002355,
+     "planned_stop": 112.3502,
+     "planned_target": 129.5239,
+     "planned_risk_amount": 754.12,
+     "opened_at": "2025-03-14T21:00:00Z",
+     "closed_at": "2025-04-24T21:00:00Z",
+     "bars_held": 6,
+     "exit_reason": "STALLED",
+     "total_cost": 20.66,
+     "profit_and_loss": -226.236,
+     "r_multiple": -0.3,
+     "maximum_favorable_excursion_r": 0.4,
+     "maximum_adverse_excursion_r": -0.5
+    },
+    "has_saved_decision": false
+   }
+  ]
+ }
+}

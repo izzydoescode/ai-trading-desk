@@ -288,6 +288,20 @@ p.equity-curve { display: flex; align-items: center; justify-content: center; }
 .journal td.reason { white-space: normal; padding-right: 0; }
 .agent-text { color: var(--agent); }
 
+/* review */
+.review { display: flex; flex-direction: column; gap: 10px; }
+.review-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px 24px; align-items: start; }
+.review caption { text-align: left; padding-bottom: 2px; }
+.review-trades td, .review-trades th { padding-right: 10px; white-space: nowrap; }
+.breakdown tbody th { white-space: nowrap; }
+.excursions { margin: 0; }
+.excursions svg { width: 100%; max-width: 420px; height: auto; display: block; }
+.excursions .axis { stroke: var(--strong-border); stroke-width: 1; }
+.excursions .axis-label { fill: var(--label); font-size: 10px; }
+.excursions .point { font-size: 12px; fill: currentColor; }
+.decision-detail { border: 1px solid var(--amber); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.views { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+
 /* pipeline + footer */
 .pipeline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; }
 .pipeline ol { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }

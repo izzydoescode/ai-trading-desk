@@ -6,7 +6,9 @@ import {
   cloneSnapshot,
   messageSample,
   reportWith,
+  reviewSample,
   statusMessage,
+  tradeDecisionSample,
   tradeReport,
 } from "./test/fixtures";
 import type { ServerMessage } from "./types";
@@ -25,7 +27,8 @@ class FakeSocket {
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  // A fresh answer per call: the page both posts controls and loads the trade review.
+  fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("WebSocket", FakeSocket);
 });
@@ -160,8 +163,10 @@ describe("terminal page", () => {
 
   it("shows the server's refusal next to the command line and clears it on success", async () => {
     const user = userEvent.setup();
-    fetchMock.mockResolvedValueOnce(
-      new Response('{"detail":"Live polling is not available yet"}', { status: 501 }),
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/mode"
+        ? new Response('{"detail":"Live polling is not available yet"}', { status: 501 })
+        : new Response("{}", { status: 200 }),
     );
     renderDesk(cloneSnapshot());
     await user.click(screen.getByRole("button", { name: "GO LIVE" }));
@@ -172,8 +177,9 @@ describe("terminal page", () => {
 
   it("reports a failed request that is not an API refusal", async () => {
     const user = userEvent.setup();
-    fetchMock.mockImplementationOnce(() => {
-      throw new Error("boom");
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/mode") throw new Error("boom");
+      return new Response("{}", { status: 200 });
     });
     renderDesk(cloneSnapshot());
     await user.click(screen.getByRole("button", { name: "GO LIVE" }));
@@ -279,5 +285,48 @@ describe("terminal page", () => {
     renderDesk(cloneSnapshot());
     await user.type(screen.getByRole("textbox"), "live{Enter}");
     expect(lastPost()).toEqual(["/api/mode", { mode: "live" }]);
+  });
+
+  it("loads the trade review and opens the saved decision behind a trade", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/review"
+        ? new Response(JSON.stringify(reviewSample), { status: 200 })
+        : path === "/api/review/trades/0/decision"
+          ? new Response(JSON.stringify(tradeDecisionSample), { status: 200 })
+          : new Response("{}", { status: 200 }),
+    );
+    renderDesk(cloneSnapshot());
+    const panel = screen.getByRole("region", { name: "Trade review" });
+    expect(await within(panel).findByText("2W / 2L · +$2,580.98")).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: "Why trade 1 was taken" }));
+    const detail = await within(panel).findByRole("region", { name: "Saved decision" });
+    expect(await within(detail).findByText("PLANNED ENTRY")).toBeInTheDocument();
+    await user.click(within(detail).getByRole("button", { name: "CLOSE" }));
+    expect(within(panel).queryByRole("region", { name: "Saved decision" })).not.toBeInTheDocument();
+  });
+
+  it("says so when a saved decision cannot be loaded, and keeps the review", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/review") return new Response(JSON.stringify(reviewSample), { status: 200 });
+      if (path === "/api/review/trades/0/decision") throw new Error("offline");
+      return new Response("{}", { status: 200 });
+    });
+    renderDesk(cloneSnapshot());
+    const panel = screen.getByRole("region", { name: "Trade review" });
+    await user.click(await within(panel).findByRole("button", { name: "Why trade 1 was taken" }));
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "The desk server is not reachable.",
+    );
+    expect(within(panel).getByText("2W / 2L · +$2,580.98")).toBeInTheDocument();
+  });
+
+  it("shows an empty review when the review cannot be loaded", async () => {
+    fetchMock.mockImplementation(async () => new Response("not json", { status: 200 }));
+    renderDesk(cloneSnapshot());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/review"));
+    expect(screen.getByText(/No closed trades yet/)).toBeInTheDocument();
   });
 });

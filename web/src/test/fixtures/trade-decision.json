@@ -1,0 +1,385 @@
+{
+ "schema_version": "3.0",
+ "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+ "symbol": "AAPL",
+ "market": "US equities (daily)",
+ "analysis_timestamp": "2026-11-17T08:28:42.405784Z",
+ "evaluated_as_of": "2025-03-13T21:00:00Z",
+ "mode": "deterministic",
+ "market_data_timestamp": "2025-03-13T21:00:00Z",
+ "indicators": {
+  "candle_count": 51,
+  "close": 116.6436,
+  "sma20": 114.16051,
+  "sma50": 109.020728,
+  "rsi14": 65.51232123504795,
+  "atr14": 2.146722532475269,
+  "return20_pct": 3.9851729422242244,
+  "relative_volume20": 1.0101010101010102,
+  "high20": 119.4425,
+  "low20": 108.7596,
+  "latest_high": 117.6436,
+  "latest_low": 115.6436,
+  "previous_high": 118.6594,
+  "previous_low": 116.6594,
+  "prior_high20": 119.4425,
+  "prior_high55": null,
+  "prior_high252": null,
+  "prior_low20": 108.7596,
+  "prior_low55": null,
+  "prior_low252": null,
+  "bollinger_upper20": 119.55396545560544,
+  "bollinger_lower20": 108.76705454439457
+ },
+ "account": {
+  "equity": 100000.0,
+  "cash": 100000.0,
+  "open_idea_count": 0,
+  "open_risk_amount": 0.0,
+  "realized_loss_today": 0.0
+ },
+ "limits": {
+  "max_loss_per_idea_fraction": 0.01,
+  "minimum_reward_to_risk": 2.75,
+  "maximum_open_ideas": 1,
+  "maximum_daily_loss_fraction": 0.01,
+  "maximum_position_fraction": 0.2,
+  "kill_switch_engaged": false,
+  "stalled_trade_sessions": 5,
+  "stalled_trade_progress_r": 0.5
+ },
+ "scout": {
+  "symbol": "AAPL",
+  "verdict": "WATCH",
+  "score": 0.7696,
+  "side": "LONG",
+  "volume_surge": false,
+  "signals": [
+   {
+    "kind": "BREAKDOWN_BELOW_PRIOR_DAY_LOW",
+    "level": 116.6594,
+    "is_bullish": false,
+    "volume_confirmed": false
+   }
+  ],
+  "reasons": [
+   "Trend aligned: close above SMA20 above SMA50.",
+   "20-session return +3.99%.",
+   "RSI14 65.5 is firm without being overbought.",
+   "Volume 1.01x its 20-session average.",
+   "Close broke down below the prior day's low 116.6594, without a volume surge: unconfirmed, low probability.",
+   "52-week range unavailable: 51 sessions of history."
+  ],
+  "evidence": [
+   {
+    "metric": "close",
+    "value": 116.6436
+   },
+   {
+    "metric": "sma20",
+    "value": 114.16051
+   },
+   {
+    "metric": "sma50",
+    "value": 109.020728
+   },
+   {
+    "metric": "rsi14",
+    "value": 65.51232123504795
+   },
+   {
+    "metric": "return20_pct",
+    "value": 3.9851729422242244
+   },
+   {
+    "metric": "relative_volume20",
+    "value": 1.0101010101010102
+   }
+  ]
+ },
+ "chart": {
+  "thesis": {
+   "classification": "BULLISH",
+   "summary": "Observed close 116.6436, SMA20 114.1605, SMA50 109.0207. Moving-average ordering describes historical trend; continuation is uncertain.",
+   "evidence": [
+    {
+     "metric": "close",
+     "value": 116.6436
+    },
+    {
+     "metric": "sma20",
+     "value": 114.16051
+    },
+    {
+     "metric": "sma50",
+     "value": 109.020728
+    },
+    {
+     "metric": "rsi14",
+     "value": 65.51232123504795
+    },
+    {
+     "metric": "atr14",
+     "value": 2.146722532475269
+    },
+    {
+     "metric": "return20_pct",
+     "value": 3.9851729422242244
+    }
+   ],
+   "risks": [
+    "Lagging indicators cannot establish future returns or identify event risk."
+   ],
+   "abstain": false
+  },
+  "counter_case": {
+   "classification": "NEUTRAL",
+   "summary": "Independent momentum and data-risk review. No current catalysts, fundamentals, liquidity, or corporate-action review supplied. A trend may reverse; gaps can exceed observed daily ranges.",
+   "evidence": [
+    {
+     "metric": "rsi14",
+     "value": 65.51232123504795
+    },
+    {
+     "metric": "atr14",
+     "value": 2.146722532475269
+    },
+    {
+     "metric": "return20_pct",
+     "value": 3.9851729422242244
+    }
+   ],
+   "risks": [
+    "No current catalysts, fundamentals, liquidity, or corporate-action review supplied.",
+    "A trend may reverse; gaps can exceed observed daily ranges."
+   ],
+   "abstain": false
+  },
+  "trend": "BULLISH",
+  "support": 108.7596,
+  "resistance": 119.4425,
+  "strategy_notes": [
+   "BREAKOUT: close is not above its prior 20-session high.",
+   "TREND_CONTINUATION: triggered, close above SMA20 above SMA50.",
+   "BOLLINGER_REVERSION: low did not reach the lower band 108.7671."
+  ],
+  "setup": {
+   "strategy": "TREND_CONTINUATION",
+   "side": "LONG",
+   "entry_reference": 116.6436,
+   "stop": 112.3502,
+   "target": 129.5239,
+   "confirmation": "Uptrend confirmed while the close holds above SMA20 114.1605.",
+   "invalidation": "A close below 112.3502 (2 ATR under entry) invalidates the idea.",
+   "target_follows_band": false
+  },
+  "watch_for": null
+ },
+ "news": {
+  "verdict": "INSUFFICIENT_DATA",
+  "abstain": true,
+  "summary": "No news source was supplied to the desk.",
+  "verified_facts": [],
+  "commentary": [],
+  "red_flags": [],
+  "missing_information": [
+   "Dated news items for the symbol"
+  ],
+  "bullish_headline_count": null,
+  "bearish_headline_count": null,
+  "neutral_headline_count": null
+ },
+ "sentiment": {
+  "verdict": "INSUFFICIENT_DATA",
+  "abstain": true,
+  "summary": "No sentiment source was supplied to the desk.",
+  "mood_score": null,
+  "hype_risk": "UNKNOWN",
+  "reasons": [],
+  "contrarian_view": "Unknown crowd positioning is itself a risk."
+ },
+ "risk": {
+  "verdict": "APPROVE",
+  "checks": [
+   {
+    "name": "Kill switch",
+    "limit": "off",
+    "actual": "off",
+    "passed": true
+   },
+   {
+    "name": "Data quality",
+    "limit": "no blockers",
+    "actual": "0 blocker(s)",
+    "passed": true
+   },
+   {
+    "name": "Open ideas",
+    "limit": "fewer than 1 open",
+    "actual": "0 open",
+    "passed": true
+   },
+   {
+    "name": "Daily loss budget",
+    "limit": "1.00% of equity incl. open stops",
+    "actual": "1000.00 left",
+    "passed": true
+   },
+   {
+    "name": "Invalidation level set",
+    "limit": "required",
+    "actual": "112.3502",
+    "passed": true
+   },
+   {
+    "name": "Reward to risk after costs",
+    "limit": "at least 2.75",
+    "actual": "2.89",
+    "passed": true
+   },
+   {
+    "name": "Position size",
+    "limit": "at least one tradable unit within every limit",
+    "actual": "171 unit(s)",
+    "passed": true
+   },
+   {
+    "name": "Max loss per idea",
+    "limit": "1.00% of equity",
+    "actual": "0.75%",
+    "passed": true
+   },
+   {
+    "name": "Leverage",
+    "limit": "none",
+    "actual": "0.20x of equity",
+    "passed": true
+   }
+  ],
+  "plan": {
+   "symbol": "AAPL",
+   "side": "LONG",
+   "strategy": "TREND_CONTINUATION",
+   "entry_reference": 116.6436,
+   "stop": 112.3502,
+   "target": 129.5239,
+   "units": 171.0,
+   "notional": 19946.06,
+   "risk_amount": 754.12,
+   "reward_to_risk": 2.8942,
+   "target_follows_band": false,
+   "stalled_trade_sessions": 5,
+   "stalled_trade_progress_r": 0.5
+  },
+  "failed_checks": [],
+  "revision": null
+ },
+ "decision": {
+  "action": "TRADE",
+  "summary": "Enter LONG 171 unit(s) at the next open. Stop 112.3502, target 129.5239, maximum loss 754.12.",
+  "plan": {
+   "symbol": "AAPL",
+   "side": "LONG",
+   "strategy": "TREND_CONTINUATION",
+   "entry_reference": 116.6436,
+   "stop": 112.3502,
+   "target": 129.5239,
+   "units": 171.0,
+   "notional": 19946.06,
+   "risk_amount": 754.12,
+   "reward_to_risk": 2.8942,
+   "target_follows_band": false,
+   "stalled_trade_sessions": 5,
+   "stalled_trade_progress_r": 0.5
+  },
+  "sources": [
+   "HAWKEYE WATCH",
+   "NEO thesis BULLISH",
+   "NEO counter-case NEUTRAL",
+   "SNOWDEN INSUFFICIENT_DATA",
+   "FAMA INSUFFICIENT_DATA",
+   "ODIN APPROVE"
+  ],
+  "dissent": [
+   "NEO counter-case=NEUTRAL vs thesis=BULLISH. Independent momentum and data-risk review. No current catalysts, fundamentals, liquidity, or corporate-action review supplied. A trend may reverse; gaps can exceed observed daily ranges.",
+   "SNOWDEN=INSUFFICIENT_DATA vs thesis=BULLISH. No news source was supplied to the desk.",
+   "FAMA=INSUFFICIENT_DATA vs thesis=BULLISH. No sentiment source was supplied to the desk."
+  ],
+  "required_confirmation": null,
+  "failed_rule": null
+ },
+ "model_review": null,
+ "limitations": [
+  "Current news, fundamentals and liquidity are not researched.",
+  "Daily bars; completeness uses conservative calendar-gap heuristics, not an exchange holiday calendar.",
+  "Synthetic scenario: not actual AAPL prices or investment research.",
+  "Long setups only; scoring and levels are uncalibrated rules."
+ ],
+ "trace": [
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "market_data",
+   "status": "ok",
+   "duration_ms": 0.396,
+   "provider": "bundled-synthetic-fixture",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "quality_audit",
+   "status": "ok",
+   "duration_ms": 0.029,
+   "provider": "deterministic-rules",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "fama",
+   "status": "ok",
+   "duration_ms": 0.008,
+   "provider": "deterministic-rules",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "hawkeye",
+   "status": "ok",
+   "duration_ms": 0.044,
+   "provider": "deterministic-rules",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "neo",
+   "status": "ok",
+   "duration_ms": 0.055,
+   "provider": "deterministic-rules",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "snowden",
+   "status": "ok",
+   "duration_ms": 0.007,
+   "provider": "deterministic-rules",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "odin",
+   "status": "ok",
+   "duration_ms": 0.045,
+   "provider": "deterministic-rules",
+   "error": null
+  },
+  {
+   "run_id": "aaeb8fd2-f9d6-4196-b782-69bbbcff3cd2",
+   "agent": "picard",
+   "status": "ok",
+   "duration_ms": 0.026,
+   "provider": "deterministic-rules",
+   "error": null
+  }
+ ],
+ "purpose": "Paper trading research only; no real orders and no investment advice."
+}
