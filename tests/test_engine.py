@@ -474,3 +474,131 @@ async def test_the_engine_can_continue_a_journal_and_act_on_only_the_latest_bar(
             end=candles[-1].timestamp,
             maximum_bars=0,
         )
+
+
+class CountingProvider(SyntheticProvider):
+    """Test double (not a test): a synthetic provider that counts fetches per symbol and can
+    be told to fail for one symbol.
+    """
+
+    def __init__(self, candles_by_symbol, failing_symbol=None):
+        super().__init__(candles_by_symbol)
+        self.failing_symbol, self.fetch_counts = failing_symbol, {}
+
+    async def fetch(self, symbol):
+        self.fetch_counts[symbol] = self.fetch_counts.get(symbol, 0) + 1
+        if symbol == self.failing_symbol:
+            raise ConnectionError("https://user:secret-password@example.com failed")
+        return await super().fetch(symbol)
+
+
+def make_market_trend_rules(rule="shorts", **overrides):
+    """Test helper (not a test): setup rules with the market-trend rule switched on."""
+    from trading_desk.agents.neo import SetupRules
+
+    return SetupRules(market_trend_rule=rule, **overrides)
+
+
+async def test_a_falling_stock_is_not_shorted_while_the_market_is_rising():
+    """Verifies: with the market-trend rule on, a stock in a downtrend is left alone while the
+    benchmark (SPY) is rising, and the same stock is shorted when the benchmark is falling.
+    """
+    falling, rising = make_falling_candles(), make_trending_candles(session_count=95)
+    rising_market, _ = await run(
+        SyntheticProvider({"AAPL": falling, "SPY": rising}),
+        end=falling[-1].timestamp,
+        setup_rules=make_market_trend_rules(),
+        limits=RiskLimits(stalled_trade_sessions=None),
+    )
+    assert rising_market.closed_trades == []
+    assert rising_market.final_equity == STARTING_CASH
+
+    journal = Journal()
+    falling_market, _ = await run(
+        SyntheticProvider({"AAPL": falling, "SPY": make_falling_candles(start_price=500.0)}),
+        end=falling[-1].timestamp,
+        setup_rules=make_market_trend_rules(),
+        limits=RiskLimits(stalled_trade_sessions=None),
+        journal=journal,
+    )
+    assert falling_market.closed_trades[0].side.value == "SHORT"
+    saved_decision = journal.decisions(falling_market.run_id)[0]
+    assert saved_decision["chart"]["market_trend"] == "BEARISH"
+    # The benchmark is read for its trend only; it is not traded unless it is on the list.
+    assert {trade.symbol for trade in falling_market.closed_trades} == {"AAPL"}
+
+
+async def test_an_unreadable_market_trend_means_no_short_and_no_leaked_error():
+    """Verifies: when the benchmark cannot be fetched the short is not taken (the rule fails
+    closed), the run carries on, and the provider's error text does not reach any event.
+    """
+    falling = make_falling_candles()
+    provider = CountingProvider({"AAPL": falling}, failing_symbol="SPY")
+    result, _ = await run(
+        provider,
+        end=falling[-1].timestamp,
+        setup_rules=make_market_trend_rules(),
+    )
+    assert result.closed_trades == []
+    assert result.bars_processed > 0
+    assert all("secret" not in event.model_dump_json() for event in result.events)
+
+
+async def test_the_benchmark_is_only_loaded_when_the_rule_can_matter():
+    """Verifies: the engine loads the benchmark once for a run that needs the market trend and
+    not at all for one that does not (rule off, or long-only with the rule on shorts).
+    """
+    from trading_desk.engine import symbols_to_preload
+
+    rising = make_trending_candles()
+    assert symbols_to_preload(["AAPL"], US_EQUITIES, make_market_trend_rules("off")) == ["AAPL"]
+    assert symbols_to_preload(
+        ["AAPL"], US_EQUITIES, make_market_trend_rules(allowed_sides=("LONG",))
+    ) == ["AAPL"]
+    assert symbols_to_preload(["AAPL", "SPY"], US_EQUITIES, make_market_trend_rules("both")) == [
+        "AAPL",
+        "SPY",
+    ]
+
+    with_rule = CountingProvider({"AAPL": rising, "SPY": rising})
+    await run(with_rule, end=rising[-1].timestamp, setup_rules=make_market_trend_rules("both"))
+    assert with_rule.fetch_counts == {"AAPL": 1, "SPY": 1}
+    without_rule = CountingProvider({"AAPL": rising, "SPY": rising})
+    await run(without_rule, end=rising[-1].timestamp)
+    assert without_rule.fetch_counts == {"AAPL": 1}
+
+
+async def test_the_market_trend_is_read_point_in_time_and_once_per_moment():
+    """Verifies: the market's trend at a decision uses only benchmark bars up to that moment
+    (a later collapse does not turn an earlier decision bearish), and several symbols decided
+    at the same moment share one benchmark read.
+    """
+    from trading_desk.desk import Desk
+    from trading_desk.models import AccountSnapshot
+
+    rising = make_trending_candles(session_count=70)
+    collapse = make_falling_candles(session_count=70, daily_loss=1.0, start_price=rising[-1].close)
+    later_sessions = [
+        candle.model_copy(update={"timestamp": rising[-1].timestamp + timedelta(days=offset + 1)})
+        for offset, candle in enumerate(collapse)
+    ]
+    provider = CountingProvider(
+        {
+            "AAPL": make_falling_candles(session_count=70),
+            "MSFT": make_falling_candles(session_count=70, start_price=300.0),
+            "SPY": [*rising, *later_sessions],
+        }
+    )
+    desk = Desk(provider, setup_rules=make_market_trend_rules())
+    account = AccountSnapshot(equity=STARTING_CASH, cash=STARTING_CASH)
+    desk_reports = await desk.scan(["AAPL", "MSFT"], account, rising[-1].timestamp)
+    assert [desk_report.chart.market_trend.value for desk_report in desk_reports] == [
+        "BULLISH",
+        "BULLISH",
+    ]
+    assert all(desk_report.chart.setup is None for desk_report in desk_reports)
+    assert provider.fetch_counts["SPY"] == 1
+
+    after_the_collapse = await desk.decide("AAPL", account, later_sessions[-1].timestamp)
+    assert after_the_collapse.chart.market_trend.value == "BEARISH"
+    assert provider.fetch_counts["SPY"] == 2

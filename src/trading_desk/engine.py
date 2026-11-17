@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
-from trading_desk.agents.neo import DEFAULT_SETUP_RULES, SetupRules
+from trading_desk.agents.neo import DEFAULT_SETUP_RULES, SetupRules, needs_market_trend
 from trading_desk.desk import DEFAULT_RISK_LIMITS, Desk
 from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import (
@@ -158,6 +158,17 @@ def _decision_reason(desk_report: DeskReport) -> str:
     return "approved"
 
 
+def symbols_to_preload(
+    symbols: Sequence[str], market_profile: MarketProfile, setup_rules: SetupRules
+) -> list[str]:
+    """The symbols whose history a run needs: the ones it trades, plus the benchmark when the
+    market-trend rule has to read it.
+    """
+    if not needs_market_trend(setup_rules):
+        return list(symbols)
+    return list(dict.fromkeys([*symbols, market_profile.benchmark_symbol]))
+
+
 async def run_engine(
     symbols: Sequence[str],
     data_provider: MarketDataProvider,
@@ -197,7 +208,9 @@ async def run_engine(
         raise ValueError("maximum_bars must be at least 1")
     run_id = run_id or str(uuid4())
     recorder = _EventRecorder(run_id, journal, on_event, first_event_sequence)
-    preloaded_provider = await preload_history(data_provider, symbols)
+    preloaded_provider = await preload_history(
+        data_provider, symbols_to_preload(symbols, market_profile, setup_rules)
+    )
     desk = Desk(
         preloaded_provider,
         market_profile,
