@@ -6,6 +6,18 @@ export type Classification = "BULLISH" | "BEARISH" | "NEUTRAL" | "INSUFFICIENT_D
 export type RiskVerdict = "APPROVE" | "REVISE" | "REJECT";
 export type ScoutVerdict = "WATCH" | "SKIP" | "NEED_MORE_DATA";
 
+export interface ScoutSignal {
+  kind:
+    | "NEW_52_WEEK_HIGH"
+    | "NEW_52_WEEK_LOW"
+    | "BREAKOUT_ABOVE_PRIOR_DAY_HIGH"
+    | "BREAKDOWN_BELOW_PRIOR_DAY_LOW";
+  level: number;
+  is_bullish: boolean;
+  /** False means the move came without a volume surge: low probability. */
+  volume_confirmed: boolean;
+}
+
 export interface Candle {
   timestamp: string;
   open: number;
@@ -71,7 +83,15 @@ export interface DeskReport {
     high20: number | null;
     low20: number | null;
   };
-  scout: { symbol: string; verdict: ScoutVerdict; score: number | null; reasons: string[] };
+  scout: {
+    symbol: string;
+    verdict: ScoutVerdict;
+    score: number | null;
+    /** Latest session's volume is at least 50% above its 20-session average. */
+    volume_surge?: boolean;
+    signals?: ScoutSignal[];
+    reasons: string[];
+  };
   chart: {
     thesis: Analysis;
     counter_case: Analysis;

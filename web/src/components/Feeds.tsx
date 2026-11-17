@@ -30,6 +30,9 @@ export function Watchlist({ rows, focusedSymbol, onSelect }: WatchlistProps) {
                 SCORE
               </th>
               <th scope="col" className="number">
+                VOLUME
+              </th>
+              <th scope="col" className="number">
                 VERDICT
               </th>
             </tr>
@@ -46,8 +49,21 @@ export function Watchlist({ rows, focusedSymbol, onSelect }: WatchlistProps) {
                   >
                     {row.symbol}
                   </button>
+                  {row.signals.map((signal) => (
+                    <span
+                      key={signal.label}
+                      className={`signal small tone-${signal.tone}`}
+                      title={signal.description}
+                    >
+                      {signal.label}
+                    </span>
+                  ))}
                 </th>
                 <td className="number">{row.score === null ? "n/a" : price(row.score)}</td>
+                <td className={`number ${row.volumeSurge ? "strong amber" : "label"}`}>
+                  {row.relativeVolume === null ? "–" : `${price(row.relativeVolume)}x`}
+                  {row.volumeSurge && " ▲ SURGE"}
+                </td>
                 <td className={`number strong tone-${row.tone}`}>{row.verdict}</td>
               </tr>
             ))}

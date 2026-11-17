@@ -363,3 +363,6 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8p
 }
 
 .repeat { color: var(--amber); white-space: nowrap; }
+
+.signal { display: inline-block; margin-left: 6px; border: 1px solid currentColor; padding: 0 4px; font-weight: 700; white-space: nowrap; }
+.watchlist { flex-basis: 380px; }

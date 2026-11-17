@@ -1,7 +1,14 @@
 /** Turns desk state into what each panel shows. Pure functions, no formatting of layout. */
 
 import { MISSING, percent, price } from "./format";
-import type { Account, Classification, DeskReport, EquityPoint, Snapshot } from "./types";
+import type {
+  Account,
+  Classification,
+  DeskReport,
+  EquityPoint,
+  ScoutSignal,
+  Snapshot,
+} from "./types";
 
 export type Tone = "up" | "down" | "caution" | "dim" | "amber" | "info";
 
@@ -59,8 +66,39 @@ export function focusSymbol(desk: Snapshot | null, selectedSymbol: string | null
 export interface WatchlistRow {
   symbol: string;
   score: number | null;
+  /** Latest volume as a multiple of its 20-session average. */
+  relativeVolume: number | null;
+  volumeSurge: boolean;
+  signals: SignalTag[];
   verdict: string;
   tone: Tone;
+}
+
+export interface SignalTag {
+  label: string;
+  tone: Tone;
+  /** Spoken description, including whether volume confirmed the move. */
+  description: string;
+}
+
+const SIGNAL_LABELS: Record<ScoutSignal["kind"], string> = {
+  NEW_52_WEEK_HIGH: "52W HIGH",
+  NEW_52_WEEK_LOW: "52W LOW",
+  BREAKOUT_ABOVE_PRIOR_DAY_HIGH: "BREAKOUT",
+  BREAKDOWN_BELOW_PRIOR_DAY_LOW: "BREAKDOWN",
+};
+
+/** A confirmed move is shown in its direction's colour; an unconfirmed one is dimmed
+ *  and says "no vol", because a move without volume is a low-probability signal. */
+export function signalTag(signal: ScoutSignal): SignalTag {
+  const label = SIGNAL_LABELS[signal.kind];
+  return {
+    label: signal.volume_confirmed ? `${label} ✓` : `${label} · no vol`,
+    tone: signal.volume_confirmed ? (signal.is_bullish ? "up" : "down") : "dim",
+    description: `${label.toLowerCase()} at ${price(signal.level)}, ${
+      signal.volume_confirmed ? "confirmed by volume" : "not confirmed by volume"
+    }`,
+  };
 }
 
 export function watchlistRows(reportsBySymbol: Record<string, DeskReport>): WatchlistRow[] {
@@ -68,6 +106,9 @@ export function watchlistRows(reportsBySymbol: Record<string, DeskReport>): Watc
     .map((report) => ({
       symbol: report.symbol,
       score: report.scout.score,
+      relativeVolume: report.indicators.relative_volume20,
+      volumeSurge: report.scout.volume_surge ?? false,
+      signals: (report.scout.signals ?? []).map(signalTag),
       verdict: report.scout.verdict === "NEED_MORE_DATA" ? "NEED DATA" : report.scout.verdict,
       tone: ({ WATCH: "up", SKIP: "dim", NEED_MORE_DATA: "caution" } as const)[
         report.scout.verdict

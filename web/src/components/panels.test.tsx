@@ -159,13 +159,25 @@ describe("watchlist and journal", () => {
   it("shows unscored symbols as n/a", () => {
     render(
       <Watchlist
-        rows={[{ symbol: "TSLA", score: null, verdict: "NEED DATA", tone: "caution" }]}
+        rows={[
+          { symbol: "TSLA", score: null, verdict: "NEED DATA", tone: "caution", relativeVolume: null, volumeSurge: false, signals: [] },
+          { symbol: "NVDA", score: 0.7, verdict: "WATCH", tone: "up", relativeVolume: 1.83, volumeSurge: true, signals: [{ label: "52W HIGH ✓", tone: "up", description: "52w high at 108.00, confirmed by volume" }] },
+          { symbol: "AAPL", score: 0.6, verdict: "WATCH", tone: "up", relativeVolume: 1.1, volumeSurge: false, signals: [{ label: "BREAKOUT · no vol", tone: "dim", description: "breakout at 109.00, not confirmed by volume" }] },
+        ]}
         focusedSymbol={null}
         onSelect={vi.fn()}
       />,
     );
     expect(screen.getByText("n/a")).toBeInTheDocument();
     expect(screen.getByText("NEED DATA")).toHaveClass("tone-caution");
+    expect(screen.getByText("1.83x ▲ SURGE")).toHaveClass("amber");
+    expect(screen.getByText("1.10x")).toHaveClass("label");
+    expect(screen.getByText("52W HIGH ✓")).toHaveClass("tone-up");
+    expect(screen.getByText("BREAKOUT · no vol")).toHaveClass("tone-dim");
+    expect(screen.getByText("BREAKOUT · no vol")).toHaveAttribute(
+      "title",
+      "breakout at 109.00, not confirmed by volume",
+    );
   });
 
   it("lists the latest events first, folds repeats and colours known agents only", () => {
