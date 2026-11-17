@@ -26,6 +26,7 @@ FIXTURE_BAR_COUNT = 80
 
 
 def make_replay_settings(**overrides):
+    """Test helper (not a test): builds replay settings for the tests below."""
     return ReplaySettings(
         **{
             "symbols": ["AAPL"],
@@ -38,12 +39,15 @@ def make_replay_settings(**overrides):
 
 
 async def yield_once(seconds):
+    """Test helper (not a test): yield once."""
     await asyncio.sleep(0)
 
 
 def make_session(acts_on_bar=None, **options):
-    """A session whose pacing sleep returns at once; `acts_on_bar(session, bar_number)`
-    is called before each sleep so a test can steer the run at an exact bar."""
+    """Test helper (not a test): A session whose pacing sleep returns at once;
+    `acts_on_bar(session, bar_number)` is called before each sleep so a test can steer the run
+    at an exact bar.
+    """
     paced_bars = []
 
     async def sleeper(seconds):
@@ -57,6 +61,8 @@ def make_session(acts_on_bar=None, **options):
 
 
 async def wait_for_status(desk_session, expected_status, timeout_seconds=10.0):
+    """Test helper (not a test): wait for status."""
+
     async def poll():
         while desk_session.status is not expected_status:
             await asyncio.sleep(0.001)
@@ -65,6 +71,7 @@ async def wait_for_status(desk_session, expected_status, timeout_seconds=10.0):
 
 
 def drain(subscriber_queue):
+    """Test helper (not a test): drain."""
     messages = []
     while not subscriber_queue.empty():
         messages.append(subscriber_queue.get_nowait())
@@ -72,6 +79,7 @@ def drain(subscriber_queue):
 
 
 async def test_replay_runs_to_the_end_and_matches_a_plain_engine_run():
+    """Verifies: replay runs to the end and matches a plain engine run."""
     desk_session, paced_bars = make_session()
     await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
@@ -97,6 +105,7 @@ async def test_replay_runs_to_the_end_and_matches_a_plain_engine_run():
 
 
 async def test_subscriber_gets_a_snapshot_then_bars_events_and_a_final_status():
+    """Verifies: subscriber gets a snapshot then bars events and a final status."""
     desk_session, _ = make_session()
     subscriber_queue = desk_session.subscribe()
     await desk_session.start(make_replay_settings())
@@ -119,6 +128,7 @@ async def test_subscriber_gets_a_snapshot_then_bars_events_and_a_final_status():
 
 
 async def test_a_queued_snapshot_does_not_grow_while_the_run_continues():
+    """Verifies: a queued snapshot does not grow while the run continues."""
     desk_session, _ = make_session()
     subscriber_queue = desk_session.subscribe()
     await desk_session.start(make_replay_settings())
@@ -132,6 +142,8 @@ async def test_a_queued_snapshot_does_not_grow_while_the_run_continues():
 
 
 async def test_pause_holds_the_bar_and_resume_finishes_the_run():
+    """Verifies: pause holds the bar and resume finishes the run."""
+
     def pause_on_bar_ten(desk_session, bar_number):
         if bar_number == 10:
             desk_session.pause()
@@ -154,6 +166,7 @@ async def test_pause_holds_the_bar_and_resume_finishes_the_run():
 
 
 async def test_controls_that_need_a_run_refuse_when_idle():
+    """Verifies: controls that need a run refuse when idle."""
     desk_session, _ = make_session()
     with pytest.raises(SessionNotRunningError):
         desk_session.pause()
@@ -166,6 +179,8 @@ async def test_controls_that_need_a_run_refuse_when_idle():
 
 
 async def test_speed_sets_the_wait_between_bars_and_rejects_nonsense():
+    """Verifies: speed sets the wait between bars and rejects nonsense."""
+
     def speed_up_on_bar_three(desk_session, bar_number):
         if bar_number == 3:
             desk_session.set_speed(8)
@@ -181,6 +196,7 @@ async def test_speed_sets_the_wait_between_bars_and_rejects_nonsense():
 
 
 async def test_kill_switch_engaged_before_the_run_means_no_ideas_at_all():
+    """Verifies: kill switch engaged before the run means no ideas at all."""
     desk_session, _ = make_session()
     desk_session.set_kill_switch(True)
     await desk_session.start(make_replay_settings())
@@ -193,6 +209,7 @@ async def test_kill_switch_engaged_before_the_run_means_no_ideas_at_all():
 
 
 async def test_kill_switch_mid_run_halts_new_ideas_and_release_allows_them_again():
+    """Verifies: kill switch mid run halts new ideas and release allows them again."""
     observed = {}
 
     def engage_then_release(desk_session, bar_number):
@@ -230,6 +247,8 @@ async def test_kill_switch_mid_run_halts_new_ideas_and_release_allows_them_again
 
 
 async def test_stop_cancels_a_paused_run():
+    """Verifies: stop cancels a paused run."""
+
     def pause_on_bar_five(desk_session, bar_number):
         if bar_number == 5:
             desk_session.pause()
@@ -246,6 +265,8 @@ async def test_stop_cancels_a_paused_run():
 
 
 async def test_a_failed_run_reports_only_the_error_class(monkeypatch):
+    """Verifies: a failed run reports only the error class."""
+
     async def failing_engine(*arguments, **options):
         raise RuntimeError("https://vendor.example/bars?apikey=SECRET-VALUE")
 
@@ -259,6 +280,7 @@ async def test_a_failed_run_reports_only_the_error_class(monkeypatch):
 
 
 async def test_a_reader_that_falls_behind_is_told_to_resync(monkeypatch):
+    """Verifies: a reader that falls behind is told to resync."""
     monkeypatch.setattr(session_module, "SUBSCRIBER_QUEUE_LIMIT", 5)
     desk_session, _ = make_session()
     subscriber_queue = desk_session.subscribe()
@@ -270,6 +292,7 @@ async def test_a_reader_that_falls_behind_is_told_to_resync(monkeypatch):
 
 
 def test_replay_settings_reject_a_backwards_window_and_unknown_fields():
+    """Verifies: replay settings reject a backwards window and unknown fields."""
     with pytest.raises(ValidationError, match="ends before it starts"):
         make_replay_settings(start=LAST_BAR, end=FIRST_BAR)
     with pytest.raises(ValidationError):
@@ -279,6 +302,8 @@ def test_replay_settings_reject_a_backwards_window_and_unknown_fields():
 
 
 async def test_session_passes_its_news_feed_to_the_desk_and_names_it():
+    """Verifies: session passes its news feed to the desk and names it."""
+
     class OneItemFeed:
         name = "one-item-feed"
 
@@ -303,6 +328,7 @@ async def test_session_passes_its_news_feed_to_the_desk_and_names_it():
 
 
 async def test_session_passes_its_sentiment_feed_to_the_desk_and_names_it():
+    """Verifies: session passes its sentiment feed to the desk and names it."""
     from trading_desk.agents.fama import SentimentReading
 
     class SteadyTone:
@@ -324,6 +350,7 @@ async def test_session_passes_its_sentiment_feed_to_the_desk_and_names_it():
 
 
 async def test_session_passes_its_news_tone_feed_to_snowden():
+    """Verifies: session passes its news tone feed to snowden."""
     from trading_desk.agents.fama import SentimentReading
     from trading_desk.models import NewsItem
 

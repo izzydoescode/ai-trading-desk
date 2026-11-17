@@ -22,6 +22,7 @@ from trading_desk.models import (
 
 
 def make_analysis(classification=Classification.BULLISH):
+    """Test helper (not a test): builds analysis for the tests below."""
     is_abstaining = classification is Classification.INSUFFICIENT_DATA
     return Analysis(
         classification=classification,
@@ -33,6 +34,7 @@ def make_analysis(classification=Classification.BULLISH):
 
 
 def make_scout_report(verdict=ScoutVerdict.WATCH):
+    """Test helper (not a test): builds scout report for the tests below."""
     return ScoutReport(
         symbol="AAPL",
         verdict=verdict,
@@ -45,7 +47,7 @@ def make_scout_report(verdict=ScoutVerdict.WATCH):
 def make_chart_report_with_setup(
     counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"
 ):
-    """A chart report carrying a complete trade setup."""
+    """Test helper (not a test): A chart report carrying a complete trade setup."""
     return ChartReport(
         thesis=make_analysis(),
         counter_case=make_analysis(counter_case),
@@ -61,12 +63,14 @@ def make_chart_report_with_setup(
 
 
 def make_news_report(verdict=Classification.NEUTRAL):
+    """Test helper (not a test): builds news report for the tests below."""
     return NewsReport(
         verdict=verdict, abstain=verdict is Classification.INSUFFICIENT_DATA, summary="News view."
     )
 
 
 def make_sentiment_report(verdict=Classification.NEUTRAL, hype_risk=HypeRisk.LOW):
+    """Test helper (not a test): builds sentiment report for the tests below."""
     is_abstaining = verdict is Classification.INSUFFICIENT_DATA
     return SentimentReport(
         verdict=verdict,
@@ -78,6 +82,7 @@ def make_sentiment_report(verdict=Classification.NEUTRAL, hype_risk=HypeRisk.LOW
 
 
 def make_trade_plan():
+    """Test helper (not a test): builds trade plan for the tests below."""
     return TradePlan(
         symbol="AAPL",
         side=TradeSide.LONG,
@@ -92,11 +97,13 @@ def make_trade_plan():
 
 
 def make_risk_approval():
+    """Test helper (not a test): builds risk approval for the tests below."""
     passing = RiskCheck(name="Open ideas", limit="fewer than 1 open", actual="0 open", passed=True)
     return RiskReport(verdict=RiskVerdict.APPROVE, checks=[passing], plan=make_trade_plan())
 
 
 def make_risk_refusal(verdict, failed_checks, revision=None):
+    """Test helper (not a test): builds risk refusal for the tests below."""
     failing = RiskCheck(name=failed_checks[0], limit="limit", actual="actual", passed=False)
     return RiskReport(
         verdict=verdict, checks=[failing], failed_checks=failed_checks, revision=revision
@@ -104,6 +111,7 @@ def make_risk_refusal(verdict, failed_checks, revision=None):
 
 
 def decide(**overrides):
+    """Test helper (not a test): decide."""
     reports = {
         "scout_report": make_scout_report(),
         "chart": make_chart_report_with_setup(),
@@ -115,6 +123,7 @@ def decide(**overrides):
 
 
 def test_trade_carries_the_approved_plan_unchanged():
+    """Verifies: trade carries the approved plan unchanged."""
     decision = decide()
     assert decision.action is DecisionAction.TRADE
     assert decision.plan == make_trade_plan()
@@ -123,6 +132,7 @@ def test_trade_carries_the_approved_plan_unchanged():
 
 
 def test_risk_rejection_is_final_whatever_the_other_agents_say():
+    """Verifies: risk rejection is final whatever the other agents say."""
     decision = decide(
         risk_report=make_risk_refusal(RiskVerdict.REJECT, ["Kill switch", "Open ideas"]),
         sentiment_report=make_sentiment_report(Classification.BULLISH),
@@ -133,6 +143,7 @@ def test_risk_rejection_is_final_whatever_the_other_agents_say():
 
 
 def test_risk_revision_becomes_wait_with_the_requested_change():
+    """Verifies: risk revision becomes wait with the requested change."""
     decision = decide(
         risk_report=make_risk_refusal(
             RiskVerdict.REVISE, ["Reward to risk after costs"], "Widen the target."
@@ -155,6 +166,7 @@ def test_risk_revision_becomes_wait_with_the_requested_change():
     ],
 )
 def test_approved_ideas_still_wait_when_an_agent_objects(overrides, expected_text):
+    """Verifies: approved ideas still wait when an agent objects."""
     decision = decide(**overrides)
     assert decision.action is DecisionAction.WAIT
     assert decision.plan is None
@@ -163,6 +175,7 @@ def test_approved_ideas_still_wait_when_an_agent_objects(overrides, expected_tex
 
 
 def test_disagreement_and_missing_views_are_kept_as_dissent():
+    """Verifies: disagreement and missing views are kept as dissent."""
     decision = decide(
         news_report=make_news_report(Classification.INSUFFICIENT_DATA),
         sentiment_report=make_sentiment_report(Classification.NEUTRAL),
@@ -174,6 +187,7 @@ def test_disagreement_and_missing_views_are_kept_as_dissent():
 
 
 def test_full_agreement_records_no_dissent():
+    """Verifies: full agreement records no dissent."""
     decision = decide(
         chart=make_chart_report_with_setup(Classification.BULLISH),
         news_report=make_news_report(Classification.BULLISH),
@@ -184,6 +198,7 @@ def test_full_agreement_records_no_dissent():
 
 
 def make_scout_report_with_signals(verdict, signals=()):
+    """Test helper (not a test): builds scout report with signals for the tests below."""
     from trading_desk.models import ScoutSignal
 
     return ScoutReport(
@@ -200,6 +215,7 @@ def make_scout_report_with_signals(verdict, signals=()):
 
 
 def decide_reversion(reversion_scout_report):
+    """Test helper (not a test): decide reversion."""
     return decide(
         scout_report=reversion_scout_report,
         chart=make_chart_report_with_setup(strategy="BOLLINGER_REVERSION"),
@@ -207,16 +223,19 @@ def decide_reversion(reversion_scout_report):
 
 
 def test_a_reversion_setup_may_trade_without_a_trend_watch_rating():
+    """Verifies: a reversion setup may trade without a trend watch rating."""
     decision = decide_reversion(make_scout_report_with_signals(ScoutVerdict.SKIP))
     assert decision.action is DecisionAction.TRADE
 
 
 def test_a_trend_setup_still_needs_the_watch_rating():
+    """Verifies: a trend setup still needs the watch rating."""
     decision = decide(scout_report=make_scout_report_with_signals(ScoutVerdict.SKIP))
     assert decision.action is DecisionAction.WAIT
 
 
 def test_a_reversion_setup_waits_on_a_heavy_volume_breakdown_or_missing_data():
+    """Verifies: a reversion setup waits on a heavy volume breakdown or missing data."""
     breakdown = make_scout_report_with_signals(
         ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, True)]
     )

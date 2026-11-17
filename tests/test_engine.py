@@ -17,7 +17,9 @@ STARTING_CASH = 100_000.0
 
 
 def make_trending_candles(session_count=90, daily_gain=0.4, start_price=100.0, volume=1_000_000):
-    """A steady uptrend with small pullbacks every fifth session, on weekdays only."""
+    """Test helper (not a test): A steady uptrend with small pullbacks every fifth session, on
+    weekdays only.
+    """
     candles, price, session_date = [], start_price, FIRST_BAR
     while len(candles) < session_count:
         if session_date.weekday() < 5:
@@ -38,6 +40,8 @@ def make_trending_candles(session_count=90, daily_gain=0.4, start_price=100.0, v
 
 
 class SyntheticProvider:
+    """Test double (not a test): stands in for a real provider so tests control what it does."""
+
     name = "synthetic-test"
 
     def __init__(self, candles_by_symbol):
@@ -52,6 +56,7 @@ class SyntheticProvider:
 
 
 async def run(provider=None, symbols=("AAPL",), venue=None, **options):
+    """Test helper (not a test): run."""
     venue = venue or PaperVenue(STARTING_CASH, US_EQUITIES)
     result = await run_engine(
         list(symbols),
@@ -65,10 +70,12 @@ async def run(provider=None, symbols=("AAPL",), venue=None, **options):
 
 
 def events_of(result, kind):
+    """Test helper (not a test): events of."""
     return [event for event in result.events if event.kind == kind]
 
 
 async def test_run_is_deterministic_apart_from_its_run_id():
+    """Verifies: run is deterministic apart from its run id."""
     first_result, _ = await run()
     second_result, _ = await run()
     assert first_result.run_id != second_result.run_id
@@ -81,6 +88,7 @@ async def test_run_is_deterministic_apart_from_its_run_id():
 
 
 async def test_no_decision_is_possible_before_enough_history_exists():
+    """Verifies: no decision is possible before enough history exists."""
     result, _ = await run()
     assert result.bars_processed == 80
     first_fifty_bars = [point.timestamp for point in result.equity_curve[:49]]
@@ -90,6 +98,7 @@ async def test_no_decision_is_possible_before_enough_history_exists():
 
 
 async def test_orders_fill_on_the_bar_after_the_decision_never_the_same_bar():
+    """Verifies: orders fill on the bar after the decision never the same bar."""
     result, _ = await run()
     trade_decisions = events_of(result, "TRADE")
     fills = events_of(result, "FILL")
@@ -101,6 +110,7 @@ async def test_orders_fill_on_the_bar_after_the_decision_never_the_same_bar():
 
 
 async def test_equity_is_flat_until_the_first_fill_and_positions_close_at_the_end():
+    """Verifies: equity is flat until the first fill and positions close at the end."""
     result, venue = await run()
     first_fill_time = events_of(result, "FILL")[0].timestamp
     for point in result.equity_curve:
@@ -114,6 +124,7 @@ async def test_equity_is_flat_until_the_first_fill_and_positions_close_at_the_en
 
 
 async def test_symbol_with_an_open_position_is_skipped_not_re_entered():
+    """Verifies: symbol with an open position is skipped not re entered."""
     result, _ = await run()
     skips = [event for event in events_of(result, "SKIP") if event.reason == "position_open"]
     assert skips
@@ -121,6 +132,7 @@ async def test_symbol_with_an_open_position_is_skipped_not_re_entered():
 
 
 async def test_one_open_idea_limit_holds_across_several_trending_symbols():
+    """Verifies: one open idea limit holds across several trending symbols."""
     candles = make_trending_candles()
     provider = SyntheticProvider({"AAA": candles, "BBB": candles, "CCC": candles})
     result, _ = await run(provider, ("AAA", "BBB", "CCC"), end=candles[-1].timestamp)
@@ -135,6 +147,7 @@ async def test_one_open_idea_limit_holds_across_several_trending_symbols():
 
 
 async def test_more_open_ideas_are_taken_when_the_limit_allows_and_risk_is_rechecked():
+    """Verifies: more open ideas are taken when the limit allows and risk is rechecked."""
     candles = make_trending_candles()
     provider = SyntheticProvider({"AAA": candles, "BBB": candles})
     result, venue = await run(
@@ -149,6 +162,7 @@ async def test_more_open_ideas_are_taken_when_the_limit_allows_and_risk_is_reche
 
 
 async def test_symbol_without_data_is_reported_and_the_rest_still_run():
+    """Verifies: symbol without data is reported and the rest still run."""
     provider = SyntheticProvider({"AAA": make_trending_candles()})
     result, _ = await run(provider, ("AAA", "MISSING"), end=LAST_BAR + timedelta(days=60))
     data_errors = events_of(result, "DATA_ERROR")
@@ -157,6 +171,7 @@ async def test_symbol_without_data_is_reported_and_the_rest_still_run():
 
 
 async def test_halted_venue_keeps_settling_bars_but_takes_no_new_ideas():
+    """Verifies: halted venue keeps settling bars but takes no new ideas."""
     venue = PaperVenue(STARTING_CASH, US_EQUITIES)
     venue.halt(FIRST_BAR)
     result, _ = await run(venue=venue)
@@ -166,12 +181,14 @@ async def test_halted_venue_keeps_settling_bars_but_takes_no_new_ideas():
 
 
 async def test_kill_switch_limit_rejects_every_idea():
+    """Verifies: kill switch limit rejects every idea."""
     result, _ = await run(limits=RiskLimits(kill_switch_engaged=True))
     assert events_of(result, "FILL") == []
     assert all("Kill switch" in event.reason for event in events_of(result, "REJECT"))
 
 
 async def test_events_reach_the_journal_and_the_listener_in_sequence():
+    """Verifies: events reach the journal and the listener in sequence."""
     journal, heard_events = Journal(), []
     result, _ = await run(journal=journal, on_event=heard_events.append)
     assert heard_events == result.events
@@ -182,6 +199,7 @@ async def test_events_reach_the_journal_and_the_listener_in_sequence():
 
 
 async def test_window_limits_which_bars_are_traded_but_not_the_history_used():
+    """Verifies: window limits which bars are traded but not the history used."""
     midpoint = FIRST_BAR + timedelta(days=90)
     result, _ = await run(start=midpoint)
     assert all(point.timestamp >= midpoint for point in result.equity_curve)
@@ -189,6 +207,7 @@ async def test_window_limits_which_bars_are_traded_but_not_the_history_used():
 
 
 async def test_empty_window_and_reversed_window():
+    """Verifies: empty window and reversed window."""
     result, _ = await run(start=LAST_BAR + timedelta(days=10), end=LAST_BAR + timedelta(days=20))
     assert result.bars_processed == 0
     assert result.final_equity == STARTING_CASH
@@ -197,6 +216,7 @@ async def test_empty_window_and_reversed_window():
 
 
 async def test_bar_hook_sees_every_bar_in_order_with_that_bars_reports():
+    """Verifies: bar hook sees every bar in order with that bars reports."""
     bar_updates = []
 
     async def remember(bar_update):
@@ -221,6 +241,7 @@ async def test_bar_hook_sees_every_bar_in_order_with_that_bars_reports():
 
 
 async def test_bar_hook_still_fires_while_the_venue_is_halted():
+    """Verifies: bar hook still fires while the venue is halted."""
     venue = PaperVenue(STARTING_CASH, US_EQUITIES)
     venue.halt(FIRST_BAR)
     bar_updates = []
@@ -234,6 +255,8 @@ async def test_bar_hook_still_fires_while_the_venue_is_halted():
 
 
 async def test_bar_hook_does_not_change_the_outcome():
+    """Verifies: bar hook does not change the outcome."""
+
     async def ignore(bar_update):
         return None
 
@@ -243,6 +266,8 @@ async def test_bar_hook_does_not_change_the_outcome():
 
 
 async def test_news_feed_is_queried_point_in_time_on_every_decision():
+    """Verifies: news feed is queried point in time on every decision."""
+
     class RecordingNewsFeed:
         name = "recording-news-feed"
 

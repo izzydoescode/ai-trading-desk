@@ -21,6 +21,7 @@ VALID_CSV = """Date,Open,High,Low,Close,Volume
 
 
 def test_csv_rows_become_chronological_utc_candles():
+    """Verifies: csv rows become chronological utc candles."""
     candles = parse_daily_bar_csv(VALID_CSV)
     assert [candle.timestamp for candle in candles] == [
         datetime(2025, 1, 2, tzinfo=UTC),
@@ -31,6 +32,7 @@ def test_csv_rows_become_chronological_utc_candles():
 
 
 def test_csv_header_is_case_insensitive_and_ignores_extra_columns():
+    """Verifies: csv header is case insensitive and ignores extra columns."""
     csv_text = "date,OPEN,High,low,Close,Adj Close,VOLUME\n2025-01-02,100,102,99,101,100.5,10\n"
     assert parse_daily_bar_csv(csv_text)[0].high == 102
 
@@ -46,11 +48,13 @@ def test_csv_header_is_case_insensitive_and_ignores_extra_columns():
     ],
 )
 def test_malformed_csv_fails_closed(malformed_csv):
+    """Verifies: malformed csv fails closed."""
     with pytest.raises(ValueError):
         parse_daily_bar_csv(malformed_csv)
 
 
 async def test_directory_provider_reads_the_symbol_file(tmp_path):
+    """Verifies: directory provider reads the symbol file."""
     (tmp_path / "AAPL.csv").write_text(VALID_CSV)
     market_data = await CsvDirectoryProvider(tmp_path).fetch("AAPL")
     assert market_data.source == "local-csv-daily"
@@ -60,12 +64,14 @@ async def test_directory_provider_reads_the_symbol_file(tmp_path):
 
 
 async def test_directory_provider_reports_missing_history_without_inventing_candles(tmp_path):
+    """Verifies: directory provider reports missing history without inventing candles."""
     market_data = await CsvDirectoryProvider(tmp_path).fetch("MSFT")
     assert market_data.candles == []
     assert market_data.errors == ["No local CSV history for MSFT"]
 
 
 async def test_directory_provider_reports_malformed_file_by_error_class(tmp_path):
+    """Verifies: directory provider reports malformed file by error class."""
     (tmp_path / "AAPL.csv").write_text("Date,Open\n2025-01-02,100\n")
     market_data = await CsvDirectoryProvider(tmp_path).fetch("AAPL")
     assert market_data.candles == []
@@ -73,6 +79,7 @@ async def test_directory_provider_reports_malformed_file_by_error_class(tmp_path
 
 
 async def test_directory_provider_never_reads_outside_its_folder(tmp_path):
+    """Verifies: directory provider never reads outside its folder."""
     history_directory = tmp_path / "history"
     history_directory.mkdir()
     (tmp_path / "SECRET.csv").write_text(VALID_CSV)
@@ -82,6 +89,7 @@ async def test_directory_provider_never_reads_outside_its_folder(tmp_path):
 
 
 def make_chart_payload(timestamps, opens, highs, lows, closes, volumes):
+    """Test helper (not a test): builds chart payload for the tests below."""
     quote = {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volumes}
     return {
         "chart": {
@@ -92,11 +100,14 @@ def make_chart_payload(timestamps, opens, highs, lows, closes, volumes):
 
 
 async def fetch_with_handler(handler, symbol="AAPL"):
+    """Test helper (not a test): fetch with handler."""
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         return await YahooChartProvider(client, history_range="1mo").fetch(symbol)
 
 
 async def test_yahoo_request_shape_and_candle_parsing():
+    """Verifies: yahoo request shape and candle parsing."""
+
     def handler(request):
         assert request.url.path == "/v8/finance/chart/AAPL"
         assert request.url.params["interval"] == "1d"
@@ -123,6 +134,7 @@ async def test_yahoo_request_shape_and_candle_parsing():
 
 
 async def test_yahoo_skips_sessions_with_null_prices():
+    """Verifies: yahoo skips sessions with null prices."""
     payload = make_chart_payload(
         [1794321000, 1794407400, 1794493800],
         [10.0, None, 11.0],
@@ -144,12 +156,14 @@ async def test_yahoo_skips_sessions_with_null_prices():
     ],
 )
 async def test_yahoo_reports_missing_series_as_an_error(response):
+    """Verifies: yahoo reports missing series as an error."""
     market_data = await fetch_with_handler(lambda request: response)
     assert market_data.candles == []
     assert market_data.errors == ["Provider returned no daily series (unknown symbol or no data)"]
 
 
 async def test_yahoo_retries_throttling_then_succeeds(monkeypatch):
+    """Verifies: yahoo retries throttling then succeeds."""
     monkeypatch.setattr("trading_desk.tools.historical_data.asyncio.sleep", no_sleep)
     attempts = []
 
@@ -165,6 +179,7 @@ async def test_yahoo_retries_throttling_then_succeeds(monkeypatch):
 
 
 async def test_yahoo_gives_up_after_three_server_errors(monkeypatch):
+    """Verifies: yahoo gives up after three server errors."""
     monkeypatch.setattr("trading_desk.tools.historical_data.asyncio.sleep", no_sleep)
     attempts = []
 
@@ -178,6 +193,7 @@ async def test_yahoo_gives_up_after_three_server_errors(monkeypatch):
 
 
 async def test_yahoo_does_not_retry_client_errors():
+    """Verifies: yahoo does not retry client errors."""
     attempts = []
 
     def handler(request):
@@ -190,6 +206,7 @@ async def test_yahoo_does_not_retry_client_errors():
 
 
 async def test_yahoo_retries_transport_errors_then_raises(monkeypatch):
+    """Verifies: yahoo retries transport errors then raises."""
     monkeypatch.setattr("trading_desk.tools.historical_data.asyncio.sleep", no_sleep)
     attempts = []
 
@@ -203,16 +220,19 @@ async def test_yahoo_retries_transport_errors_then_raises(monkeypatch):
 
 
 async def test_yahoo_rejects_incoherent_bars_instead_of_dropping_them():
+    """Verifies: yahoo rejects incoherent bars instead of dropping them."""
     payload = make_chart_payload([1794321000], [10.0], [9.0], [11.0], [10.0], [1])
     with pytest.raises(ValueError):
         await fetch_with_handler(lambda request: httpx.Response(200, json=payload))
 
 
 async def no_sleep(seconds):
+    """Test helper (not a test): no sleep."""
     return None
 
 
 def make_one_candle_market_data(symbol="AAPL", source="counting", retrieved_at=None):
+    """Test helper (not a test): builds one candle market data for the tests below."""
     candle = Candle(
         timestamp=datetime(2025, 1, 2, tzinfo=UTC), open=1, high=2, low=1, close=2, volume=5
     )
@@ -221,7 +241,9 @@ def make_one_candle_market_data(symbol="AAPL", source="counting", retrieved_at=N
 
 
 class CountingProvider:
-    """Fake provider that records how often it is asked and replays scripted results."""
+    """Test double (not a test): fake provider that records how often it is asked and replays
+    scripted results.
+    """
 
     def __init__(self, name="counting", results=None):
         self.name = name
@@ -239,6 +261,7 @@ class CountingProvider:
 
 
 async def test_cache_serves_second_request_without_calling_the_provider(tmp_path):
+    """Verifies: cache serves second request without calling the provider."""
     wrapped_provider = CountingProvider()
     caching_provider = CachingProvider(wrapped_provider, tmp_path)
     first_result = await caching_provider.fetch("AAPL")
@@ -250,6 +273,7 @@ async def test_cache_serves_second_request_without_calling_the_provider(tmp_path
 
 
 async def test_cache_refetches_when_the_entry_is_too_old(tmp_path):
+    """Verifies: cache refetches when the entry is too old."""
     stale_retrieval_time = datetime.now(UTC) - timedelta(days=2)
     wrapped_provider = CountingProvider(
         results=[make_one_candle_market_data(retrieved_at=stale_retrieval_time)]
@@ -261,6 +285,7 @@ async def test_cache_refetches_when_the_entry_is_too_old(tmp_path):
 
 
 async def test_cache_never_stores_failures(tmp_path):
+    """Verifies: cache never stores failures."""
     failed_result = MarketData(symbol="AAPL", source="counting", errors=["quota"])
     wrapped_provider = CountingProvider(results=[failed_result])
     caching_provider = CachingProvider(wrapped_provider, tmp_path)
@@ -270,6 +295,7 @@ async def test_cache_never_stores_failures(tmp_path):
 
 
 async def test_cache_ignores_corrupt_and_mismatched_entries(tmp_path):
+    """Verifies: cache ignores corrupt and mismatched entries."""
     wrapped_provider = CountingProvider()
     caching_provider = CachingProvider(wrapped_provider, tmp_path)
     cache_folder = tmp_path / "counting"
@@ -282,6 +308,7 @@ async def test_cache_ignores_corrupt_and_mismatched_entries(tmp_path):
 
 
 async def test_fallback_returns_first_usable_result_and_skips_failures():
+    """Verifies: fallback returns first usable result and skips failures."""
     raising_provider = CountingProvider("primary", [RuntimeError("https://host/?apikey=SECRET")])
     empty_provider = CountingProvider(
         "secondary", [MarketData(symbol="AAPL", source="secondary", errors=["quota"])]
@@ -297,6 +324,7 @@ async def test_fallback_returns_first_usable_result_and_skips_failures():
 
 
 async def test_fallback_reports_every_failure_without_leaking_exception_text():
+    """Verifies: fallback reports every failure without leaking exception text."""
     raising_provider = CountingProvider("primary", [RuntimeError("https://host/?apikey=SECRET")])
     empty_provider = CountingProvider("secondary", [MarketData(symbol="AAPL", source="secondary")])
     market_data = await FallbackProvider([raising_provider, empty_provider]).fetch("AAPL")
@@ -307,11 +335,13 @@ async def test_fallback_reports_every_failure_without_leaking_exception_text():
 
 
 def test_fallback_requires_at_least_one_provider():
+    """Verifies: fallback requires at least one provider."""
     with pytest.raises(ValueError):
         FallbackProvider([])
 
 
 async def test_preload_fetches_each_symbol_once_and_serves_from_memory():
+    """Verifies: preload fetches each symbol once and serves from memory."""
     wrapped_provider = CountingProvider()
     preloaded_provider = await preload_history(wrapped_provider, ["AAPL", "MSFT"])
     assert wrapped_provider.fetch_count == 2
@@ -322,6 +352,7 @@ async def test_preload_fetches_each_symbol_once_and_serves_from_memory():
 
 
 async def test_preload_keeps_failures_as_errors_without_leaking_exception_text():
+    """Verifies: preload keeps failures as errors without leaking exception text."""
     wrapped_provider = CountingProvider(results=[RuntimeError("apikey=SECRET")])
     preloaded_provider = await preload_history(wrapped_provider, ["AAPL", "MSFT"])
     failed_history = await preloaded_provider.fetch("AAPL")
@@ -330,6 +361,7 @@ async def test_preload_keeps_failures_as_errors_without_leaking_exception_text()
 
 
 async def test_preloaded_provider_reports_symbols_it_was_never_given():
+    """Verifies: preloaded provider reports symbols it was never given."""
     market_data = await PreloadedProvider("memory", {}).fetch("TSLA")
     assert market_data.candles == []
     assert market_data.errors == ["No preloaded history for TSLA"]

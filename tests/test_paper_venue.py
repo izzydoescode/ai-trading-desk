@@ -12,6 +12,7 @@ DAY_ONE = datetime(2025, 3, 3, 14, 30, tzinfo=UTC)
 
 
 def make_candle(day, open_price, high, low, close):
+    """Test helper (not a test): builds candle for the tests below."""
     return Candle(
         timestamp=DAY_ONE + timedelta(days=day),
         open=open_price,
@@ -23,6 +24,7 @@ def make_candle(day, open_price, high, low, close):
 
 
 def make_trade_plan(symbol="AAPL", units=10, entry=100.0, stop=95.0, target=110.0):
+    """Test helper (not a test): builds trade plan for the tests below."""
     return TradePlan(
         symbol=symbol,
         side=TradeSide.LONG,
@@ -37,10 +39,12 @@ def make_trade_plan(symbol="AAPL", units=10, entry=100.0, stop=95.0, target=110.
 
 
 def make_paper_venue(market=FREE_MARKET, starting_cash=10_000.0):
+    """Test helper (not a test): builds paper venue for the tests below."""
     return PaperVenue(starting_cash, market)
 
 
 def test_order_fills_at_the_next_bar_open_not_at_the_signal_price():
+    """Verifies: order fills at the next bar open not at the signal price."""
     paper_venue = make_paper_venue()
     submit_event = paper_venue.submit(make_trade_plan(), DAY_ONE)
     assert submit_event.kind is VenueEventKind.SUBMIT
@@ -53,6 +57,7 @@ def test_order_fills_at_the_next_bar_open_not_at_the_signal_price():
 
 
 def test_target_exit_books_profit_and_r_multiple():
+    """Verifies: target exit books profit and r multiple."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -69,6 +74,7 @@ def test_target_exit_books_profit_and_r_multiple():
 
 
 def test_stop_exit_books_the_planned_loss():
+    """Verifies: stop exit books the planned loss."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -81,6 +87,7 @@ def test_stop_exit_books_the_planned_loss():
 
 
 def test_a_bar_touching_stop_and_target_counts_as_a_loss():
+    """Verifies: a bar touching stop and target counts as a loss."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -89,6 +96,7 @@ def test_a_bar_touching_stop_and_target_counts_as_a_loss():
 
 
 def test_gap_through_the_stop_exits_at_the_open_not_at_the_stop():
+    """Verifies: gap through the stop exits at the open not at the stop."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -99,6 +107,7 @@ def test_gap_through_the_stop_exits_at_the_open_not_at_the_stop():
 
 
 def test_gap_above_the_target_exits_at_the_open():
+    """Verifies: gap above the target exits at the open."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -107,6 +116,7 @@ def test_gap_above_the_target_exits_at_the_open():
 
 
 def test_stop_can_trigger_on_the_fill_bar_but_never_at_its_open():
+    """Verifies: stop can trigger on the fill bar but never at its open."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     events = paper_venue.process_bar("AAPL", make_candle(1, 100.0, 101.0, 94.0, 96.0))
@@ -119,6 +129,7 @@ def test_stop_can_trigger_on_the_fill_bar_but_never_at_its_open():
     [(95.0, "opened_at_or_below_stop"), (110.0, "opened_at_or_above_target")],
 )
 def test_order_is_cancelled_when_the_open_voids_the_idea(open_price, expected_reason):
+    """Verifies: order is cancelled when the open voids the idea."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     events = paper_venue.process_bar(
@@ -132,6 +143,7 @@ def test_order_is_cancelled_when_the_open_voids_the_idea(open_price, expected_re
 
 
 def test_order_is_cancelled_when_the_open_costs_more_than_the_cash_held():
+    """Verifies: order is cancelled when the open costs more than the cash held."""
     paper_venue = make_paper_venue(starting_cash=1_000.0)
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     events = paper_venue.process_bar("AAPL", make_candle(1, 105.0, 106.0, 104.0, 105.5))
@@ -139,6 +151,7 @@ def test_order_is_cancelled_when_the_open_costs_more_than_the_cash_held():
 
 
 def test_commission_and_slippage_reduce_the_result_on_both_sides():
+    """Verifies: commission and slippage reduce the result on both sides."""
     paper_venue = make_paper_venue(COSTLY_MARKET)
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -153,6 +166,7 @@ def test_commission_and_slippage_reduce_the_result_on_both_sides():
 
 
 def test_only_one_idea_per_symbol():
+    """Verifies: only one idea per symbol."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     duplicate_event = paper_venue.submit(make_trade_plan(), DAY_ONE)
@@ -165,6 +179,7 @@ def test_only_one_idea_per_symbol():
 
 
 def test_account_snapshot_counts_open_and_queued_risk():
+    """Verifies: account snapshot counts open and queued risk."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan("AAPL"), DAY_ONE)
     paper_venue.submit(make_trade_plan("MSFT", units=4), DAY_ONE)
@@ -177,6 +192,7 @@ def test_account_snapshot_counts_open_and_queued_risk():
 
 
 def test_realised_loss_is_tracked_per_trading_day():
+    """Verifies: realised loss is tracked per trading day."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -187,6 +203,7 @@ def test_realised_loss_is_tracked_per_trading_day():
 
 
 def test_kill_switch_cancels_queued_orders_and_refuses_new_ones():
+    """Verifies: kill switch cancels queued orders and refuses new ones."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan("AAPL"), DAY_ONE)
     events = paper_venue.halt(DAY_ONE)
@@ -198,6 +215,7 @@ def test_kill_switch_cancels_queued_orders_and_refuses_new_ones():
 
 
 def test_liquidate_closes_positions_at_the_latest_price():
+    """Verifies: liquidate closes positions at the latest price."""
     paper_venue = make_paper_venue()
     paper_venue.submit(make_trade_plan(), DAY_ONE)
     paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
@@ -209,6 +227,7 @@ def test_liquidate_closes_positions_at_the_latest_price():
 
 
 def test_only_paper_execution_exists():
+    """Verifies: only paper execution exists."""
     assert isinstance(create_venue("paper", 1_000.0, US_EQUITIES), PaperVenue)
     with pytest.raises(NotImplementedError, match="paper only"):
         create_venue("live", 1_000.0, US_EQUITIES)

@@ -11,6 +11,7 @@ AS_OF = datetime(2025, 4, 23, 22, tzinfo=UTC)
 
 
 async def test_full_workflow_and_round_trip():
+    """Verifies: full workflow and round trip."""
     report = await run_research("aapl", FixtureProvider(), as_of=AS_OF)
     assert report.symbol == "AAPL"
     assert report.mode == "deterministic"
@@ -28,6 +29,7 @@ async def test_full_workflow_and_round_trip():
 
 
 async def test_missing_data_abstains_and_names_missing_inputs():
+    """Verifies: missing data abstains and names missing inputs."""
     report = await run_research("AAPL", FixtureProvider("missing"), as_of=AS_OF)
     assert report.classification == Classification.INSUFFICIENT_DATA
     assert report.abstained
@@ -36,24 +38,31 @@ async def test_missing_data_abstains_and_names_missing_inputs():
 
 
 async def test_unknown_symbol_does_not_relabel_fixture():
+    """Verifies: unknown symbol does not relabel fixture."""
     report = await run_research("MSFT", FixtureProvider(), as_of=AS_OF)
     assert report.abstained
     assert not report.data.candles
 
 
 async def test_stale_data_abstains():
+    """Verifies: stale data abstains."""
     report = await run_research("AAPL", FixtureProvider(), as_of=AS_OF + timedelta(days=10))
     assert report.abstained
     assert any("Stale" in x for x in report.limitations)
 
 
 async def test_no_lookahead():
+    """Verifies: no lookahead."""
     report = await run_research("AAPL", FixtureProvider(), as_of=AS_OF - timedelta(days=75))
     assert all(c.timestamp <= report.evaluated_as_of for c in report.data.candles)
     assert report.abstained
 
 
 class FailingData:
+    """Test double (not a test): stands in for a real failingdata so the tests control its
+    behaviour.
+    """
+
     name = "failing"
 
     async def fetch(self, symbol):
@@ -61,6 +70,7 @@ class FailingData:
 
 
 async def test_provider_failure_is_controlled_and_redacted():
+    """Verifies: provider failure is controlled and redacted."""
     report = await run_research("AAPL", FailingData(), as_of=AS_OF)
     assert report.abstained
     assert "secret-token" not in report.model_dump_json()
@@ -68,6 +78,10 @@ async def test_provider_failure_is_controlled_and_redacted():
 
 
 class WrongSymbol:
+    """Test double (not a test): stands in for a real wrongsymbol so the tests control its
+    behaviour.
+    """
+
     name = "wrong"
 
     async def fetch(self, symbol):
@@ -75,10 +89,12 @@ class WrongSymbol:
 
 
 async def test_symbol_mismatch_abstains():
+    """Verifies: symbol mismatch abstains."""
     assert (await run_research("AAPL", WrongSymbol(), as_of=AS_OF)).abstained
 
 
 async def test_invalid_timestamp_and_symbol():
+    """Verifies: invalid timestamp and symbol."""
     with pytest.raises(ValueError):
         await run_research("../AAPL", FixtureProvider())
     with pytest.raises(ValueError):
@@ -86,6 +102,10 @@ async def test_invalid_timestamp_and_symbol():
 
 
 class GappedData:
+    """Test double (not a test): stands in for a real gappeddata so the tests control its
+    behaviour.
+    """
+
     name = "gapped"
 
     async def fetch(self, symbol):
@@ -94,6 +114,7 @@ class GappedData:
 
 
 async def test_internal_gap_blocks_full_length_history():
+    """Verifies: internal gap blocks full length history."""
     r = await run_research("AAPL", GappedData(), as_of=AS_OF)
     assert r.indicators.candle_count == 70
     assert r.abstained
@@ -101,11 +122,16 @@ async def test_internal_gap_blocks_full_length_history():
 
 
 async def test_future_evaluation_rejected():
+    """Verifies: future evaluation rejected."""
     with pytest.raises(ValueError, match="future"):
         await run_research("AAPL", FixtureProvider(), as_of=datetime.now(UTC) + timedelta(days=1))
 
 
 class ExtremeData:
+    """Test double (not a test): stands in for a real extremedata so the tests control its
+    behaviour.
+    """
+
     name = "extreme"
 
     async def fetch(self, symbol):
@@ -118,6 +144,7 @@ class ExtremeData:
 
 
 async def test_numeric_overflow_fails_closed_with_source_preserved():
+    """Verifies: numeric overflow fails closed with source preserved."""
     r = await run_research("AAPL", ExtremeData(), as_of=AS_OF)
     assert r.abstained
     assert len(r.data.candles) == 80
@@ -126,6 +153,7 @@ async def test_numeric_overflow_fails_closed_with_source_preserved():
 
 
 async def test_quality_gates_follow_the_market_profile():
+    """Verifies: quality gates follow the market profile."""
     lenient_profile = US_EQUITIES.model_copy(
         update={"minimum_history_candles": 5, "maximum_data_age": timedelta(days=30)}
     )
@@ -145,6 +173,7 @@ async def test_quality_gates_follow_the_market_profile():
 
 
 async def test_gap_blocker_reports_the_profile_limit():
+    """Verifies: gap blocker reports the profile limit."""
     strict_profile = US_EQUITIES.model_copy(update={"maximum_candle_gap": timedelta(days=1)})
     report = await run_research(
         "AAPL", FixtureProvider(), as_of=AS_OF, market_profile=strict_profile

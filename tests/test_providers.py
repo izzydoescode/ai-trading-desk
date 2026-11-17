@@ -9,6 +9,7 @@ from trading_desk.tools.market_data import AlphaVantageProvider
 
 
 def make_response_body(analysis):
+    """Test helper (not a test): builds response body for the tests below."""
     return {
         "status": "completed",
         "output": [
@@ -21,6 +22,7 @@ def make_response_body(analysis):
 
 
 async def test_llm_wire_contract_and_parsing():
+    """Verifies: llm wire contract and parsing."""
     expected = Analysis(
         classification=Classification.INSUFFICIENT_DATA,
         summary="No evidence",
@@ -56,6 +58,7 @@ async def test_llm_wire_contract_and_parsing():
     ],
 )
 async def test_incomplete_refused_or_missing_output_rejected(payload):
+    """Verifies: incomplete refused or missing output rejected."""
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
     ) as client:
@@ -64,6 +67,7 @@ async def test_incomplete_refused_or_missing_output_rejected(payload):
 
 
 async def test_market_rate_limit_retry_budget(monkeypatch):
+    """Verifies: market rate limit retry budget."""
     calls = []
 
     async def no_wait(_):
@@ -82,6 +86,7 @@ async def test_market_rate_limit_retry_budget(monkeypatch):
 
 
 async def test_market_quota_payload_is_explicit_error():
+    """Verifies: market quota payload is explicit error."""
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(200, json={"Information": "quota exceeded"})
@@ -93,6 +98,7 @@ async def test_market_quota_payload_is_explicit_error():
 
 
 async def test_market_valid_response_sorted_and_parsed():
+    """Verifies: market valid response sorted and parsed."""
     payload = {
         "Time Series (Daily)": {
             "2025-04-23": {

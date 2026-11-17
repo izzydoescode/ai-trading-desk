@@ -16,10 +16,12 @@ START = datetime(2025, 1, 2, 21, tzinfo=UTC)
 
 
 def make_bar_time(offset):
+    """Test helper (not a test): builds bar time for the tests below."""
     return START + timedelta(days=offset)
 
 
 def make_closed_trade(profit_and_loss, r_multiple, exit_reason=ExitReason.TARGET, total_cost=1.0):
+    """Test helper (not a test): builds closed trade for the tests below."""
     return ClosedTrade(
         symbol="AAPL",
         units=10,
@@ -35,6 +37,7 @@ def make_closed_trade(profit_and_loss, r_multiple, exit_reason=ExitReason.TARGET
 
 
 def make_decision_event(sequence, kind, reason="approved", agent="PICARD"):
+    """Test helper (not a test): builds decision event for the tests below."""
     return DeskEvent(
         run_id="run",
         sequence=sequence,
@@ -47,6 +50,7 @@ def make_decision_event(sequence, kind, reason="approved", agent="PICARD"):
 
 
 def make_engine_result(equities, exposures=None, trades=(), events=()):
+    """Test helper (not a test): builds engine result for the tests below."""
     exposures = exposures or [False] * len(equities)
     return EngineResult(
         run_id="run",
@@ -63,6 +67,7 @@ def make_engine_result(equities, exposures=None, trades=(), events=()):
 
 
 def make_candle(offset, close):
+    """Test helper (not a test): builds candle for the tests below."""
     return Candle(
         timestamp=make_bar_time(offset),
         open=close,
@@ -74,6 +79,7 @@ def make_candle(offset, close):
 
 
 def test_maximum_drawdown_measures_the_worst_fall_from_a_peak():
+    """Verifies: maximum drawdown measures the worst fall from a peak."""
     assert maximum_drawdown([100, 120, 90, 110, 130, 117]) == pytest.approx(-0.25)
     assert maximum_drawdown([100, 101, 102]) == 0.0
     assert maximum_drawdown([]) == 0.0
@@ -81,6 +87,7 @@ def test_maximum_drawdown_measures_the_worst_fall_from_a_peak():
 
 def test_sharpe_ratio_is_annualised_and_undefined_without_variation():
     # Returns of 10% then 20%: mean 0.15, sample deviation 0.0707107.
+    """Verifies: sharpe ratio is annualised and undefined without variation."""
     expected_ratio = 0.15 / 0.0707106781 * 252**0.5
     assert annualised_sharpe_ratio([100, 110, 132], 252) == pytest.approx(expected_ratio)
     assert annualised_sharpe_ratio([100, 90, 99], 252) == pytest.approx(0.0, abs=1e-9)
@@ -89,6 +96,7 @@ def test_sharpe_ratio_is_annualised_and_undefined_without_variation():
 
 
 def test_buy_and_hold_return_uses_only_the_window():
+    """Verifies: buy and hold return uses only the window."""
     candles = [
         make_candle(0, 50.0),
         make_candle(1, 100.0),
@@ -101,6 +109,7 @@ def test_buy_and_hold_return_uses_only_the_window():
 
 
 def test_metrics_report_wins_and_losses_in_money_and_in_r():
+    """Verifies: metrics report wins and losses in money and in r."""
     result = make_engine_result(
         [100, 104, 102, 108],
         exposures=[False, True, True, False],
@@ -137,6 +146,7 @@ def test_metrics_report_wins_and_losses_in_money_and_in_r():
 
 
 def test_metrics_for_a_run_without_trades_or_bars_are_honest_blanks():
+    """Verifies: metrics for a run without trades or bars are honest blanks."""
     metrics = compute_metrics(make_engine_result([]), US_EQUITIES)
     assert metrics.total_return == 0.0
     assert metrics.trade_count == 0
@@ -149,6 +159,7 @@ def test_metrics_for_a_run_without_trades_or_bars_are_honest_blanks():
 
 
 def test_profit_factor_is_undefined_when_nothing_lost():
+    """Verifies: profit factor is undefined when nothing lost."""
     metrics = compute_metrics(
         make_engine_result([100, 110], trades=[make_closed_trade(10.0, 1.0)]), US_EQUITIES
     )

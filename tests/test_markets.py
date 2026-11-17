@@ -13,6 +13,7 @@ from trading_desk.markets import (
 
 
 def test_equities_profile_matches_documented_quality_gates():
+    """Verifies: equities profile matches documented quality gates."""
     assert US_EQUITIES.asset_class is AssetClass.EQUITY
     assert US_EQUITIES.minimum_history_candles == 50
     assert US_EQUITIES.maximum_data_age == timedelta(days=5)
@@ -23,22 +24,26 @@ def test_equities_profile_matches_documented_quality_gates():
 
 
 def test_round_trip_cost_counts_both_sides_of_the_trade():
+    """Verifies: round trip cost counts both sides of the trade."""
     profile = US_EQUITIES.model_copy(update={"commission_rate": 0.001, "slippage_rate": 0.0005})
     assert profile.round_trip_cost_rate == pytest.approx(0.003)
 
 
 @pytest.mark.parametrize("lookup_key", [AssetClass.EQUITY, "equity"])
 def test_registry_resolves_enum_and_string_keys(lookup_key):
+    """Verifies: registry resolves enum and string keys."""
     assert get_market_profile(lookup_key) is US_EQUITIES
 
 
 @pytest.mark.parametrize("unregistered_key", [AssetClass.CRYPTO, "solana_token", "bonds"])
 def test_registry_names_available_markets_when_profile_is_missing(unregistered_key):
+    """Verifies: registry names available markets when profile is missing."""
     with pytest.raises(ValueError, match="available: equity"):
         get_market_profile(unregistered_key)
 
 
 def test_profiles_are_immutable():
+    """Verifies: profiles are immutable."""
     with pytest.raises(ValidationError):
         US_EQUITIES.minimum_history_candles = 10
 
@@ -54,10 +59,12 @@ def test_profiles_are_immutable():
     ],
 )
 def test_profile_rejects_invalid_values(invalid_override):
+    """Verifies: profile rejects invalid values."""
     with pytest.raises(ValidationError):
         MarketProfile(**{**US_EQUITIES.model_dump(), **invalid_override})
 
 
 def test_every_registered_profile_is_keyed_by_its_own_asset_class():
+    """Verifies: every registered profile is keyed by its own asset class."""
     for asset_class, profile in MARKET_PROFILES.items():
         assert profile.asset_class is asset_class

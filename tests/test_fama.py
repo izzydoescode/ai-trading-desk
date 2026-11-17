@@ -6,6 +6,7 @@ from trading_desk.models import Classification, HypeRisk
 
 
 def test_fama_abstains_without_a_source():
+    """Verifies: fama abstains without a source."""
     sentiment_report = fama.report(None)
     assert sentiment_report.abstain
     assert sentiment_report.mood_score is None
@@ -17,6 +18,7 @@ def test_fama_abstains_without_a_source():
     [(5, 4, 0), (0, 0, 50)],
 )
 def test_fama_abstains_on_a_thin_or_directionless_sample(bullish, bearish, neutral):
+    """Verifies: fama abstains on a thin or directionless sample."""
     reading = SentimentReading(
         source="example-feed",
         bullish_post_count=bullish,
@@ -38,6 +40,7 @@ def test_fama_abstains_on_a_thin_or_directionless_sample(bullish, bearish, neutr
 def test_fama_scores_mood_and_treats_one_sided_optimism_as_hype(
     bullish, bearish, expected_verdict, expected_hype, expected_mood
 ):
+    """Verifies: fama scores mood and treats one sided optimism as hype."""
     reading = SentimentReading(
         source="example-feed", bullish_post_count=bullish, bearish_post_count=bearish
     )

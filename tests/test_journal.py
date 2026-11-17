@@ -11,6 +11,7 @@ START = datetime(2025, 3, 3, 21, tzinfo=UTC)
 def make_desk_event(
     sequence, kind="SKIP", reason="close below SMA50", run_id="run-1", symbol="NVDA"
 ):
+    """Test helper (not a test): builds desk event for the tests below."""
     return DeskEvent(
         run_id=run_id,
         sequence=sequence,
@@ -24,6 +25,7 @@ def make_desk_event(
 
 
 def make_closed_trade(profit_and_loss=100.0):
+    """Test helper (not a test): builds closed trade for the tests below."""
     return ClosedTrade(
         symbol="AAPL",
         units=10,
@@ -39,6 +41,7 @@ def make_closed_trade(profit_and_loss=100.0):
 
 
 def test_events_round_trip_in_order_and_are_isolated_per_run():
+    """Verifies: events round trip in order and are isolated per run."""
     journal = Journal()
     for sequence in range(3):
         journal.record_event(make_desk_event(sequence))
@@ -51,6 +54,7 @@ def test_events_round_trip_in_order_and_are_isolated_per_run():
 
 
 def test_limit_returns_the_most_recent_events_still_in_order():
+    """Verifies: limit returns the most recent events still in order."""
     journal = Journal()
     for sequence in range(5):
         journal.record_event(make_desk_event(sequence))
@@ -58,6 +62,7 @@ def test_limit_returns_the_most_recent_events_still_in_order():
 
 
 def test_trades_round_trip_in_the_order_they_closed():
+    """Verifies: trades round trip in the order they closed."""
     journal = Journal()
     journal.record_trade("run-1", make_closed_trade(100.0))
     journal.record_trade("run-1", make_closed_trade(-50.0))
@@ -66,6 +71,7 @@ def test_trades_round_trip_in_the_order_they_closed():
 
 
 def test_reason_counts_show_where_candidates_are_lost():
+    """Verifies: reason counts show where candidates are lost."""
     journal = Journal()
     journal.record_event(make_desk_event(0, reason="close below SMA50"))
     journal.record_event(make_desk_event(1, reason="close below SMA50"))
@@ -75,6 +81,7 @@ def test_reason_counts_show_where_candidates_are_lost():
 
 
 def test_journal_persists_to_a_file_and_creates_its_folder(tmp_path):
+    """Verifies: journal persists to a file and creates its folder."""
     database_path = tmp_path / "nested" / "journal.sqlite"
     journal = Journal(database_path)
     journal.record_event(make_desk_event(0))
@@ -84,6 +91,7 @@ def test_journal_persists_to_a_file_and_creates_its_folder(tmp_path):
 
 
 def test_values_are_stored_as_data_never_as_sql():
+    """Verifies: values are stored as data never as sql."""
     journal = Journal()
     hostile_text = "x'); DROP TABLE desk_events; --"
     journal.record_event(make_desk_event(0, reason=hostile_text, symbol="AAPL"))
@@ -92,6 +100,7 @@ def test_values_are_stored_as_data_never_as_sql():
 
 
 def test_duplicate_sequence_in_one_run_is_rejected():
+    """Verifies: duplicate sequence in one run is rejected."""
     journal = Journal()
     journal.record_event(make_desk_event(0))
     with pytest.raises(Exception, match="UNIQUE"):

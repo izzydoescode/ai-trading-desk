@@ -34,10 +34,12 @@ EXPECTED_AGENTS = {
 
 
 def make_account_snapshot(**overrides):
+    """Test helper (not a test): builds account snapshot for the tests below."""
     return AccountSnapshot(**{"equity": 100_000.0, "cash": 100_000.0, **overrides})
 
 
 async def decide(scenario="trend", symbol="AAPL", as_of=AS_OF, account_snapshot=None, **options):
+    """Test helper (not a test): decide."""
     return await run_desk_decision(
         symbol,
         FixtureProvider(scenario),
@@ -48,6 +50,7 @@ async def decide(scenario="trend", symbol="AAPL", as_of=AS_OF, account_snapshot=
 
 
 async def test_clean_trend_produces_an_approved_sized_trade():
+    """Verifies: clean trend produces an approved sized trade."""
     report = await decide()
     assert report.schema_version == "3.0"
     assert report.mode == "deterministic"
@@ -62,6 +65,7 @@ async def test_clean_trend_produces_an_approved_sized_trade():
 
 
 async def test_missing_news_and_sentiment_are_recorded_as_dissent_not_hidden():
+    """Verifies: missing news and sentiment are recorded as dissent not hidden."""
     report = await decide()
     assert report.news.abstain
     assert report.sentiment.abstain
@@ -70,6 +74,7 @@ async def test_missing_news_and_sentiment_are_recorded_as_dissent_not_hidden():
 
 
 async def test_contested_thesis_waits_even_though_risk_approves():
+    """Verifies: contested thesis waits even though risk approves."""
     report = await decide("conflict")
     assert report.chart.counter_case.classification is Classification.BEARISH
     assert report.risk.verdict is RiskVerdict.APPROVE
@@ -79,6 +84,7 @@ async def test_contested_thesis_waits_even_though_risk_approves():
 
 
 async def test_insufficient_history_is_rejected_by_risk():
+    """Verifies: insufficient history is rejected by risk."""
     report = await decide("missing")
     assert report.scout.verdict is ScoutVerdict.NEED_MORE_DATA
     assert report.decision.action is DecisionAction.REJECT
@@ -87,18 +93,21 @@ async def test_insufficient_history_is_rejected_by_risk():
 
 
 async def test_stale_data_can_never_reach_a_trade():
+    """Verifies: stale data can never reach a trade."""
     report = await decide(as_of=AS_OF + timedelta(days=10))
     assert report.decision.action is DecisionAction.REJECT
     assert any("Stale" in text for text in report.limitations)
 
 
 async def test_decision_never_uses_bars_after_the_evaluation_time():
+    """Verifies: decision never uses bars after the evaluation time."""
     report = await decide(as_of=AS_OF - timedelta(days=20))
     assert all(candle.timestamp <= report.evaluated_as_of for candle in report.data.candles)
     assert report.market_data_timestamp <= report.evaluated_as_of
 
 
 async def test_unsupported_symbol_is_rejected_without_relabelled_data():
+    """Verifies: unsupported symbol is rejected without relabelled data."""
     report = await decide(symbol="MSFT")
     assert report.data.candles == []
     assert report.decision.action is DecisionAction.REJECT
@@ -115,6 +124,7 @@ async def test_unsupported_symbol_is_rejected_without_relabelled_data():
 async def test_hard_limits_veto_an_otherwise_tradable_idea(
     limits, account_overrides, expected_failed_check
 ):
+    """Verifies: hard limits veto an otherwise tradable idea."""
     report = await decide(
         account_snapshot=make_account_snapshot(**account_overrides), limits=limits
     )
@@ -126,12 +136,14 @@ async def test_hard_limits_veto_an_otherwise_tradable_idea(
 
 
 async def test_reward_to_risk_floor_turns_a_trade_into_a_wait():
+    """Verifies: reward to risk floor turns a trade into a wait."""
     report = await decide(limits=RiskLimits(minimum_reward_to_risk=3.0))
     assert report.risk.verdict is RiskVerdict.REVISE
     assert report.decision.action is DecisionAction.WAIT
 
 
 async def test_supplied_news_is_filtered_to_the_evaluation_time():
+    """Verifies: supplied news is filtered to the evaluation time."""
     past_item = NewsItem(
         published_at=AS_OF - timedelta(days=1), source="Example Wire", headline="Past event"
     )
@@ -143,6 +155,7 @@ async def test_supplied_news_is_filtered_to_the_evaluation_time():
 
 
 async def test_one_sided_crowd_makes_the_desk_wait():
+    """Verifies: one sided crowd makes the desk wait."""
     reading = SentimentReading(source="example-feed", bullish_post_count=95, bearish_post_count=5)
     report = await decide(sentiment_reading=reading)
     assert report.sentiment.hype_risk is HypeRisk.HIGH
@@ -151,6 +164,7 @@ async def test_one_sided_crowd_makes_the_desk_wait():
 
 
 async def test_invalid_requests_are_refused_before_any_agent_runs():
+    """Verifies: invalid requests are refused before any agent runs."""
     with pytest.raises(ValueError):
         await decide(symbol="not a ticker")
     with pytest.raises(ValueError):
@@ -160,6 +174,10 @@ async def test_invalid_requests_are_refused_before_any_agent_runs():
 
 
 class FailingProvider:
+    """Test double (not a test): stands in for a real failingprovider so the tests control its
+    behaviour.
+    """
+
     name = "failing"
 
     async def fetch(self, symbol):
@@ -167,6 +185,7 @@ class FailingProvider:
 
 
 async def test_provider_failure_is_rejected_and_never_leaks_exception_text():
+    """Verifies: provider failure is rejected and never leaks exception text."""
     report = await run_desk_decision("AAPL", FailingProvider(), make_account_snapshot(), AS_OF)
     assert report.decision.action is DecisionAction.REJECT
     assert "SECRET-TOKEN" not in report.model_dump_json()
@@ -174,6 +193,7 @@ async def test_provider_failure_is_rejected_and_never_leaks_exception_text():
 
 
 async def test_scan_ranks_reports_with_watched_symbols_first():
+    """Verifies: scan ranks reports with watched symbols first."""
     reports = await scan_watchlist(
         ["MSFT", "AAPL"], FixtureProvider(), make_account_snapshot(), AS_OF
     )
@@ -183,7 +203,9 @@ async def test_scan_ranks_reports_with_watched_symbols_first():
 
 
 class ScriptedReviewer:
-    """Fake model reviewer: returns a scripted verdict or raises a scripted error."""
+    """Test double (not a test): fake model reviewer: returns a scripted verdict or raises a
+    scripted error.
+    """
 
     name = "fake:reviewer"
 
@@ -198,6 +220,7 @@ class ScriptedReviewer:
 
 
 async def test_model_approval_leaves_the_plan_untouched():
+    """Verifies: model approval leaves the plan untouched."""
     reviewer = ScriptedReviewer(GateVerdict(approve=True, rationale="Reports agree."))
     report = await decide(llm=reviewer)
     assert report.mode == "llm"
@@ -212,6 +235,7 @@ async def test_model_approval_leaves_the_plan_untouched():
 
 
 async def test_model_veto_turns_an_approved_trade_into_a_wait():
+    """Verifies: model veto turns an approved trade into a wait."""
     reviewer = ScriptedReviewer(GateVerdict(approve=False, rationale="Evidence is thin."))
     report = await decide(llm=reviewer)
     assert report.risk.verdict is RiskVerdict.APPROVE
@@ -222,6 +246,7 @@ async def test_model_veto_turns_an_approved_trade_into_a_wait():
 
 
 async def test_model_failure_means_no_trade_and_leaks_nothing():
+    """Verifies: model failure means no trade and leaks nothing."""
     reviewer = ScriptedReviewer(error=RuntimeError("Bearer sk-SECRET"))
     report = await decide(llm=reviewer)
     assert report.decision.action is DecisionAction.WAIT
@@ -231,6 +256,7 @@ async def test_model_failure_means_no_trade_and_leaks_nothing():
 
 
 async def test_model_is_never_asked_about_ideas_the_rules_did_not_approve():
+    """Verifies: model is never asked about ideas the rules did not approve."""
     reviewer = ScriptedReviewer(GateVerdict(approve=True, rationale="Fine."))
     for scenario in ("conflict", "missing"):
         report = await decide(scenario, llm=reviewer)
@@ -240,6 +266,7 @@ async def test_model_is_never_asked_about_ideas_the_rules_did_not_approve():
 
 
 async def test_model_cannot_approve_what_the_risk_manager_rejected():
+    """Verifies: model cannot approve what the risk manager rejected."""
     reviewer = ScriptedReviewer(GateVerdict(approve=True, rationale="Looks great."))
     report = await decide(llm=reviewer, limits=RiskLimits(kill_switch_engaged=True))
     assert report.decision.action is DecisionAction.REJECT
@@ -247,7 +274,7 @@ async def test_model_cannot_approve_what_the_risk_manager_rejected():
 
 
 class RecordingNewsFeed:
-    """A news feed double that remembers the windows it was asked for."""
+    """Test double (not a test): A news feed double that remembers the windows it was asked for."""
 
     name = "recording-news-feed"
 
@@ -266,16 +293,19 @@ class RecordingNewsFeed:
 
 
 def make_news_item(published_at, headline="Guidance raised", **overrides):
+    """Test helper (not a test): builds news item for the tests below."""
     return NewsItem(
         **{"published_at": published_at, "source": "Reuters", "headline": headline, **overrides}
     )
 
 
 def trace_entry(report, agent):
+    """Test helper (not a test): trace entry."""
     return next(entry for entry in report.trace if entry.agent == agent)
 
 
 async def test_news_feed_is_asked_for_the_week_ending_at_the_evaluation_time():
+    """Verifies: news feed is asked for the week ending at the evaluation time."""
     news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     report = await decide(news_feed=news_feed)
     assert news_feed.requests == [("AAPL", AS_OF - timedelta(days=7), AS_OF)]
@@ -286,6 +316,7 @@ async def test_news_feed_is_asked_for_the_week_ending_at_the_evaluation_time():
 
 
 async def test_a_feed_that_returns_future_news_cannot_leak_it_into_the_report():
+    """Verifies: a feed that returns future news cannot leak it into the report."""
     news_feed = RecordingNewsFeed(
         [
             make_news_item(AS_OF + timedelta(hours=1), "Tomorrow's headline"),
@@ -298,6 +329,7 @@ async def test_a_feed_that_returns_future_news_cannot_leak_it_into_the_report():
 
 
 async def test_a_failing_news_feed_makes_snowden_abstain_and_hides_the_error_text():
+    """Verifies: a failing news feed makes snowden abstain and hides the error text."""
     news_feed = RecordingNewsFeed(error=RuntimeError("https://vendor.example/?token=SECRET-VALUE"))
     report = await decide(news_feed=news_feed)
     assert report.news.abstain
@@ -312,6 +344,7 @@ async def test_a_failing_news_feed_makes_snowden_abstain_and_hides_the_error_tex
 
 
 async def test_a_slow_news_feed_times_out_and_snowden_abstains(monkeypatch):
+    """Verifies: a slow news feed times out and snowden abstains."""
     monkeypatch.setattr("trading_desk.desk.NEWS_TIMEOUT_SECONDS", 0.01)
     report = await decide(news_feed=RecordingNewsFeed(delay_seconds=0.5))
     assert report.news.abstain
@@ -319,6 +352,7 @@ async def test_a_slow_news_feed_times_out_and_snowden_abstains(monkeypatch):
 
 
 async def test_items_supplied_directly_win_over_the_feed():
+    """Verifies: items supplied directly win over the feed."""
     news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=1), "From the feed")])
     report = await decide(
         news_feed=news_feed, news_items=[make_news_item(AS_OF - timedelta(hours=2), "Supplied")]
@@ -328,6 +362,7 @@ async def test_items_supplied_directly_win_over_the_feed():
 
 
 async def test_watchlist_scan_asks_the_feed_once_per_symbol():
+    """Verifies: watchlist scan asks the feed once per symbol."""
     news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     reports = await scan_watchlist(
         ["AAPL", "MSFT"], FixtureProvider(), make_account_snapshot(), AS_OF, news_feed=news_feed
@@ -337,6 +372,10 @@ async def test_watchlist_scan_asks_the_feed_once_per_symbol():
 
 
 class ScriptedSentimentFeed:
+    """Test double (not a test): stands in for a real sentimentfeed so the tests control its
+    behaviour.
+    """
+
     name = "scripted-sentiment"
 
     def __init__(self, bullish=0, bearish=0, neutral=0, error=None, delay_seconds=0.0):
@@ -365,6 +404,7 @@ class ScriptedSentimentFeed:
 
 
 async def test_sentiment_feed_gives_fama_a_point_in_time_reading():
+    """Verifies: sentiment feed gives fama a point in time reading."""
     sentiment_feed = ScriptedSentimentFeed(bullish=12, bearish=8, neutral=5)
     report = await decide(sentiment_feed=sentiment_feed)
     assert sentiment_feed.requests == [("AAPL", AS_OF - timedelta(days=7), AS_OF)]
@@ -375,6 +415,7 @@ async def test_sentiment_feed_gives_fama_a_point_in_time_reading():
 
 
 async def test_one_sided_headline_tone_can_only_make_the_desk_wait():
+    """Verifies: one sided headline tone can only make the desk wait."""
     report = await decide(sentiment_feed=ScriptedSentimentFeed(bullish=19, bearish=1))
     assert report.sentiment.hype_risk is HypeRisk.HIGH
     assert report.risk.verdict is RiskVerdict.APPROVE
@@ -384,6 +425,7 @@ async def test_one_sided_headline_tone_can_only_make_the_desk_wait():
 
 
 async def test_a_failing_sentiment_feed_makes_fama_abstain_and_hides_the_error_text():
+    """Verifies: a failing sentiment feed makes fama abstain and hides the error text."""
     sentiment_feed = ScriptedSentimentFeed(error=RuntimeError("sk-SECRET-VALUE rejected"))
     report = await decide(sentiment_feed=sentiment_feed)
     assert report.sentiment.abstain
@@ -397,6 +439,7 @@ async def test_a_failing_sentiment_feed_makes_fama_abstain_and_hides_the_error_t
 
 
 async def test_a_slow_sentiment_feed_times_out_and_fama_abstains(monkeypatch):
+    """Verifies: a slow sentiment feed times out and fama abstains."""
     monkeypatch.setattr("trading_desk.desk.SENTIMENT_TIMEOUT_SECONDS", 0.01)
     report = await decide(sentiment_feed=ScriptedSentimentFeed(delay_seconds=0.5))
     assert report.sentiment.abstain
@@ -404,6 +447,7 @@ async def test_a_slow_sentiment_feed_times_out_and_fama_abstains(monkeypatch):
 
 
 async def test_a_reading_supplied_directly_wins_over_the_feed():
+    """Verifies: a reading supplied directly wins over the feed."""
     sentiment_feed = ScriptedSentimentFeed(bullish=19, bearish=1)
     report = await decide(
         sentiment_feed=sentiment_feed,
@@ -416,6 +460,7 @@ async def test_a_reading_supplied_directly_wins_over_the_feed():
 
 
 async def test_bearish_news_tone_makes_the_desk_wait_and_bullish_tone_changes_nothing():
+    """Verifies: bearish news tone makes the desk wait and bullish tone changes nothing."""
     news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     bearish = await decide(
         news_feed=news_feed, news_tone_feed=ScriptedSentimentFeed(bullish=1, bearish=9)
@@ -435,6 +480,7 @@ async def test_bearish_news_tone_makes_the_desk_wait_and_bullish_tone_changes_no
 
 
 async def test_a_failed_tone_reading_falls_back_to_listing_the_items():
+    """Verifies: a failed tone reading falls back to listing the items."""
     news_feed = RecordingNewsFeed([make_news_item(AS_OF - timedelta(hours=5))])
     report = await decide(
         news_feed=news_feed,
@@ -447,6 +493,7 @@ async def test_a_failed_tone_reading_falls_back_to_listing_the_items():
 
 
 async def test_tone_is_not_requested_when_there_is_no_news_to_label():
+    """Verifies: tone is not requested when there is no news to label."""
     tone_feed = ScriptedSentimentFeed(bullish=9, bearish=1)
     report = await decide(news_feed=RecordingNewsFeed([]), news_tone_feed=tone_feed)
     assert tone_feed.requests == []
