@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from trading_desk.models import Candle, MarketData
-from trading_desk.tools.indicators import calculate, wilder
+from trading_desk.tools.indicators import calculate, relative_volume, wilder
 
 
 def bars(prices):
@@ -88,3 +88,28 @@ def test_rsi_matches_wilder_worked_example():
     ]
     assert calculate(bars(prices[:15])).rsi14 == pytest.approx(70.4641, abs=0.0001)
     assert calculate(bars(prices)).rsi14 == pytest.approx(62.8807, abs=0.0001)
+
+
+def test_twenty_session_range_uses_the_latest_twenty_bars_only():
+    indicators = calculate(bars([500] + list(range(100, 125))))
+    assert indicators.high20 == 125
+    assert indicators.low20 == 104
+
+
+def test_range_and_relative_volume_need_enough_history():
+    indicators = calculate(bars(list(range(100, 119))))
+    assert indicators.high20 is None
+    assert indicators.low20 is None
+    assert indicators.relative_volume20 is None
+
+
+def test_relative_volume_compares_latest_session_to_prior_average():
+    candles = bars([100] * 21)
+    candles[-1] = candles[-1].model_copy(update={"volume": 250})
+    assert relative_volume(candles, 20) == pytest.approx(2.5)
+    assert calculate(candles).relative_volume20 == pytest.approx(2.5)
+
+
+def test_relative_volume_is_unavailable_when_prior_sessions_have_no_volume():
+    candles = [candle.model_copy(update={"volume": 0}) for candle in bars([100] * 21)]
+    assert relative_volume(candles, 20) is None

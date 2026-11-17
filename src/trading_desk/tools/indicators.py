@@ -12,6 +12,23 @@ def wilder(values: list[float], period: int) -> float | None:
     return result
 
 
+RANGE_LOOKBACK_SESSIONS = 20
+
+
+def relative_volume(candles: list[Candle], lookback_sessions: int) -> float | None:
+    """Latest volume divided by the average of the `lookback_sessions` sessions before it.
+
+    The latest session is excluded from the average so a volume spike is measured
+    against normal activity. Unavailable (None) without enough history or when the
+    prior sessions traded no volume.
+    """
+    if len(candles) < lookback_sessions + 1:
+        return None
+    prior_volumes = [candle.volume for candle in candles[-lookback_sessions - 1 : -1]]
+    average_prior_volume = sum(prior_volumes) / lookback_sessions
+    return candles[-1].volume / average_prior_volume if average_prior_volume > 0 else None
+
+
 def calculate(candles: list[Candle]) -> Indicators:
     closes = [c.close for c in candles]
     changes = [b - a for a, b in zip(closes, closes[1:], strict=False)]
@@ -24,6 +41,8 @@ def calculate(candles: list[Candle]) -> Indicators:
         max(c.high - c.low, abs(c.high - p.close), abs(c.low - p.close))
         for p, c in zip(candles, candles[1:], strict=False)
     ]
+    recent_candles = candles[-RANGE_LOOKBACK_SESSIONS:]
+    has_full_range = len(candles) >= RANGE_LOOKBACK_SESSIONS
     return Indicators(
         candle_count=len(candles),
         close=closes[-1] if closes else None,
@@ -32,4 +51,7 @@ def calculate(candles: list[Candle]) -> Indicators:
         rsi14=rsi,
         atr14=wilder(ranges, 14),
         return20_pct=(closes[-1] / closes[-21] - 1) * 100 if len(closes) >= 21 else None,
+        relative_volume20=relative_volume(candles, RANGE_LOOKBACK_SESSIONS),
+        high20=max(candle.high for candle in recent_candles) if has_full_range else None,
+        low20=min(candle.low for candle in recent_candles) if has_full_range else None,
     )

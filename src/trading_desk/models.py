@@ -60,12 +60,25 @@ class Indicators(Model):
     rsi14: float | None = None
     atr14: float | None = None
     return20_pct: float | None = None
+    relative_volume20: float | None = None
+    high20: float | None = None
+    low20: float | None = None
 
 
 class Evidence(Model):
     """An exact measurement reference. Models may select facts, never supply new prices."""
 
-    metric: Literal["close", "sma20", "sma50", "rsi14", "atr14", "return20_pct"]
+    metric: Literal[
+        "close",
+        "sma20",
+        "sma50",
+        "rsi14",
+        "atr14",
+        "return20_pct",
+        "relative_volume20",
+        "high20",
+        "low20",
+    ]
     value: float
 
 

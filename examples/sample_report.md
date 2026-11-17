@@ -16,6 +16,9 @@ Abstained: False
 | rsi14 | 63.00955978138526 |
 | atr14 | 2.1286495587700913 |
 | return20_pct | 5.001110522914343 |
+| relative_volume20 | 1.0098268600842302 |
+| high20 | 128.8987 |
+| low20 | 118.167 |
 
 ## Technical
 
@@ -52,8 +55,8 @@ Historical trend is the initial research stance. Technical: Observed close 125.7
 
 | Step | Status | Provider | ms |
 |---|---|---|---:|
-| market_data | ok | bundled-synthetic-fixture | 2.354 |
-| quality_audit | ok | python | 0.06 |
+| market_data | ok | bundled-synthetic-fixture | 1.267 |
+| quality_audit | ok | python | 0.034 |
 | technical | ok | deterministic-rules | 0.001 |
 | contrarian | ok | deterministic-rules | 0.001 |
 | synthesis | ok | deterministic-rules | 0.0 |
