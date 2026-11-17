@@ -88,7 +88,7 @@ test("the command line steers the desk and explains what it cannot do", async ({
 
 test("going live is refused in plain words and nothing changes", async ({ page }) => {
   await page.getByRole("button", { name: "GO LIVE" }).click();
-  await expect(page.getByRole("alert")).toContainText("Live polling is not available yet");
+  await expect(page.getByRole("alert")).toContainText("Live polling needs a live data source");
   await expect(header(page).getByText("REPLAY", { exact: true })).toBeVisible();
   await expect(header(page).getByText("PAPER", { exact: true })).toBeVisible();
 });
