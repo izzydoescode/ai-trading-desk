@@ -44,6 +44,7 @@ from trading_desk.tools.market_data import (
     MarketDataProvider,
 )
 from trading_desk.tools.news import FinnhubNewsFeed, NewsFeed
+from trading_desk.tools.sentiment import HeadlineToneFeed, SentimentFeed
 
 DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
 DEFAULT_PAPER_EQUITY = 100_000.0
@@ -52,6 +53,7 @@ DEFAULT_HOLDOUT_LEDGER = Path("research/holdout_log.jsonl")
 DEFAULT_MODEL_CACHE_DIRECTORY = Path("data/model_cache")
 DEFAULT_NEWS_CACHE_DIRECTORY = Path("data/news_cache")
 NEWS_SOURCES = ["none", "finnhub"]
+SENTIMENT_SOURCES = ["none", "headline-tone"]
 DEFAULT_MAXIMUM_MODEL_COST_USD = 0.50
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
@@ -126,6 +128,20 @@ def build_news_feed(args, client: httpx.AsyncClient) -> NewsFeed | None:
     return FinnhubNewsFeed(key, client, args.news_cache_dir)
 
 
+def build_sentiment_feed(
+    args, news_feed: NewsFeed | None, llm: ReasoningProvider | None
+) -> SentimentFeed | None:
+    """Create FAMA's sentiment feed, or None so it abstains for lack of a source."""
+    if args.sentiment == "none":
+        return None
+    if news_feed is None or llm is None:
+        raise ValueError(
+            "--sentiment headline-tone needs headlines and a model: add --news finnhub and "
+            "--provider anthropic or openai"
+        )
+    return HeadlineToneFeed(news_feed, llm)
+
+
 def anthropic_credentials_available() -> bool:
     """True when the Anthropic SDK can authenticate on this machine.
 
@@ -195,16 +211,20 @@ async def execute_desk(args) -> list[DeskReport]:
         provider = build_data_provider(args, client)
         llm = build_reasoning_provider(args, client, usage_meter)
         news_feed = build_news_feed(args, client)
+        feeds = {
+            "news_feed": news_feed,
+            "sentiment_feed": build_sentiment_feed(args, news_feed, llm),
+        }
         if args.desk_command == "decide":
             desk_reports = [
                 await run_desk_decision(
-                    args.symbol, provider, account, evaluation_time, llm=llm, news_feed=news_feed
+                    args.symbol, provider, account, evaluation_time, llm=llm, **feeds
                 )
             ]
         else:
             symbols = args.symbols or list(US_EQUITIES.default_watchlist)
             desk_reports = await scan_watchlist(
-                symbols, provider, account, evaluation_time, llm=llm, news_feed=news_feed
+                symbols, provider, account, evaluation_time, llm=llm, **feeds
             )
     if llm is not None:
         print(
@@ -266,10 +286,14 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
         args.journal.parent.mkdir(parents=True, exist_ok=True)
         journal = Journal(args.journal)
     async with httpx.AsyncClient() as client:
+        usage_meter = UsageMeter(args.max_model_cost)
+        news_feed = build_news_feed(args, client)
+        llm = build_reasoning_provider(args, client, usage_meter)
         desk_session = DeskSession(
             build_data_provider(args, client),
             journal=journal,
-            news_feed=build_news_feed(args, client),
+            news_feed=news_feed,
+            sentiment_feed=build_sentiment_feed(args, news_feed, llm),
         )
         server = uvicorn.Server(
             uvicorn.Config(
@@ -284,6 +308,12 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
         finally:
             if journal is not None:
                 journal.close()
+            if llm is not None:
+                print(
+                    f"Model={llm.name}; calls={usage_meter.call_count}; "
+                    f"cost=${usage_meter.cost_usd:.4f} of ${args.max_model_cost:.2f} cap",
+                    file=sys.stderr,
+                )
 
 
 def run_serve_command(args) -> int:
@@ -395,12 +425,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--ui-dir", type=Path, help="Built terminal to serve (default: web/dist if present)"
     )
     serve.add_argument("--no-ui", action="store_true", help="Serve the API only")
-    for model_command in (decide, scan):
+    for model_command in (decide, scan, serve):
         model_command.add_argument(
             "--provider",
             choices=["none", "anthropic", "openai"],
             default="none",
-            help="Model that reviews rule-approved trades (default: rules only)",
+            help="Model for trade review (decide, scan) and headline tone (default: rules only)",
         )
         model_command.add_argument(
             "--max-model-cost",
@@ -420,6 +450,12 @@ def build_parser() -> argparse.ArgumentParser:
         )
         news_command.add_argument(
             "--news-cache-dir", type=Path, default=DEFAULT_NEWS_CACHE_DIRECTORY
+        )
+        news_command.add_argument(
+            "--sentiment",
+            choices=SENTIMENT_SOURCES,
+            default="none",
+            help="Sentiment for FAMA: headline-tone labels news headlines with the model",
         )
     for desk_command in (decide, scan, backtest, serve):
         add_data_arguments(desk_command)
