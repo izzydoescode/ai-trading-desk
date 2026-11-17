@@ -152,10 +152,10 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
   const verifiedCount = report.news.verified_facts.length;
   const itemCount = verifiedCount + report.news.commentary.length;
 
-  const levelsSet = report.chart.stop !== null;
+  const setup = report.chart.setup;
   const speeches: Record<AgentName, string> = {
     HAWKEYE: topPick ? `${topPick.symbol} leads the list. Passing it down.` : "Nothing worth a look.",
-    NEO: levelsSet ? `Invalid below ${price(report.chart.stop)}.` : "No setup I would trade.",
+    NEO: setup ? `Invalid below ${price(setup.stop)}.` : "No setup I would trade.",
     SNOWDEN: report.news.abstain
       ? "No dated news supplied. I will not guess."
       : report.news.red_flags.length
@@ -189,10 +189,10 @@ export function agentCards(desk: Snapshot | null, symbol: string | null): AgentC
       name: "NEO",
       status: report.chart.thesis.abstain ? "ABSTAIN" : "DONE",
       tone: report.chart.thesis.abstain ? "dim" : "up",
-      line: report.chart.stop === null ? report.chart.confirmation : report.chart.invalidation,
-      metricLabel: report.chart.strategy ? "SETUP" : "TREND",
-      metricValue: report.chart.strategy
-        ? STRATEGY_WORDS[report.chart.strategy]
+      line: setup ? setup.invalidation : (report.chart.watch_for ?? "No setup."),
+      metricLabel: setup ? "SETUP" : "TREND",
+      metricValue: setup
+        ? STRATEGY_WORDS[setup.strategy]
         : TREND_WORDS[report.chart.thesis.classification],
     },
     {
@@ -254,9 +254,9 @@ export function pipelineStages(report: DeskReport | undefined): PipelineStage[] 
     { label: dataBlocked ? "DATA BLOCKED" : "DATA OK", agent: "DATA", tone: dataBlocked ? "down" : "up" },
     { label: `HAWKEYE ${scoutWord}`, agent: "HAWKEYE", tone: report.scout.verdict === "WATCH" ? "up" : "dim" },
     {
-      label: `NEO ${report.chart.stop === null ? "NO SETUP" : "SETUP"}`,
+      label: `NEO ${report.chart.setup === null ? "NO SETUP" : "SETUP"}`,
       agent: "NEO",
-      tone: report.chart.stop === null ? "dim" : "up",
+      tone: report.chart.setup === null ? "dim" : "up",
     },
     {
       label: `SNOWDEN ${report.news.abstain ? "NO DATA" : report.news.red_flags.length ? "RED FLAG" : "CLEAR"}`,
@@ -330,11 +330,11 @@ export interface PriceLevel {
 export function priceLevels(desk: Snapshot | null, symbol: string | null): PriceLevel[] {
   if (desk === null || symbol === null) return [];
   const position = desk.account?.positions.find((candidate) => candidate.symbol === symbol);
-  const chart = desk.reports_by_symbol[symbol]?.chart;
+  const setup = desk.reports_by_symbol[symbol]?.chart.setup;
   const levels = position
     ? { entry: position.entry_price, stop: position.stop, target: position.target }
-    : chart && chart.stop !== null && chart.target !== null && chart.entry_reference !== null
-      ? { entry: chart.entry_reference, stop: chart.stop, target: chart.target }
+    : setup
+      ? { entry: setup.entry_reference, stop: setup.stop, target: setup.target }
       : null;
   if (levels === null) return [];
   return [

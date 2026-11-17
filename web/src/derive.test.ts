@@ -130,11 +130,11 @@ describe("agent cards", () => {
     const desk = cloneSnapshot();
     desk.reports_by_symbol = { AAPL: tradeReport() };
     const cards = Object.fromEntries(agentCards(desk, "AAPL").map((card) => [card.name, card]));
-    expect(cards.HAWKEYE).toMatchObject({ status: "DONE", metricValue: "AAPL 0.82" });
+    expect(cards.HAWKEYE).toMatchObject({ status: "DONE", metricValue: "AAPL 0.77" });
     expect(cards.HAWKEYE!.line).toBe("Ranked 1 symbol: 1 watch, 0 skip, 0 need data.");
-    expect(cards.NEO).toMatchObject({ status: "DONE", metricLabel: "TREND", metricValue: "UP" });
+    expect(cards.NEO).toMatchObject({ status: "DONE", metricLabel: "SETUP", metricValue: "TREND" });
     desk.reports_by_symbol = {
-      AAPL: reportWith((report) => (report.chart.strategy = "BOLLINGER_REVERSION")),
+      AAPL: reportWith((report) => (report.chart.setup!.strategy = "BOLLINGER_REVERSION")),
     };
     expect(agentCards(desk, "AAPL")[1]).toMatchObject({
       metricLabel: "SETUP",
@@ -154,7 +154,8 @@ describe("agent cards", () => {
     desk.reports_by_symbol = {
       AAPL: reportWith((report) => {
         report.chart.thesis = { ...report.chart.thesis, classification: "INSUFFICIENT_DATA", abstain: true };
-        report.chart.stop = null;
+        report.chart.setup = null;
+        report.chart.watch_for = "A close above SMA20 above SMA50 would confirm an uptrend.";
         report.news = {
           ...report.news,
           abstain: false,
@@ -173,7 +174,7 @@ describe("agent cards", () => {
     };
     const cards = Object.fromEntries(agentCards(desk, "AAPL").map((card) => [card.name, card]));
     expect(cards.NEO).toMatchObject({ status: "ABSTAIN", metricValue: "N/A" });
-    expect(cards.NEO!.line).toContain("confirmed");
+    expect(cards.NEO!.line).toContain("would confirm an uptrend");
     expect(cards.SNOWDEN).toMatchObject({ status: "DONE", metricValue: "1 of 2" });
     expect(cards.FAMA).toMatchObject({ status: "DONE", metricValue: "58 / 100" });
     expect(cards.ODIN).toMatchObject({
@@ -216,7 +217,8 @@ describe("pipeline", () => {
     const stages = pipelineStages(
       reportWith((report) => {
         report.scout.verdict = "NEED_MORE_DATA";
-        report.chart.stop = null;
+        report.chart.setup = null;
+        report.chart.watch_for = "A close above SMA20 above SMA50 would confirm an uptrend.";
         report.news = { ...report.news, abstain: false, red_flags: ["Guidance cut"] };
         report.sentiment = { ...report.sentiment, abstain: false, verdict: "NEUTRAL" };
         report.risk = { ...report.risk, verdict: "REJECT", failed_checks: ["Data quality"] };
@@ -294,7 +296,10 @@ describe("price levels", () => {
     expect(priceLevels(null, "AAPL")).toEqual([]);
     expect(priceLevels(cloneSnapshot(), null)).toEqual([]);
     const desk = cloneSnapshot();
-    desk.reports_by_symbol = { AAPL: reportWith((report) => (report.chart.stop = null)) };
+    desk.reports_by_symbol = { AAPL: reportWith((report) => {
+        report.chart.setup = null;
+        report.chart.watch_for = "watching";
+      }) };
     expect(priceLevels(desk, "AAPL")).toEqual([]);
     expect(priceLevels(desk, "MSFT")).toEqual([]);
   });
@@ -303,7 +308,7 @@ describe("price levels", () => {
     const desk = cloneSnapshot();
     desk.reports_by_symbol = { AAPL: tradeReport() };
     expect(priceLevels(desk, "AAPL").map((level) => [level.label, level.price])).toEqual([
-      ["TARGET", 129.5238],
+      ["TARGET", 129.5239],
       ["ENTRY", 116.6436],
       ["STOP", 112.3502],
     ]);
@@ -345,7 +350,8 @@ describe("floor speech", () => {
     const desk = cloneSnapshot();
     desk.reports_by_symbol = {
       AAPL: reportWith((report) => {
-        report.chart.stop = null;
+        report.chart.setup = null;
+        report.chart.watch_for = "A close above SMA20 above SMA50 would confirm an uptrend.";
         report.news = {
           ...report.news,
           abstain: false,

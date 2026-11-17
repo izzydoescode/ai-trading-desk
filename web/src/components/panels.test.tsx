@@ -276,7 +276,7 @@ describe("chart", () => {
         candles={candles}
         levels={[]}
         report={reportWith((report) => {
-          report.chart.strategy = "BREAKOUT";
+          report.chart.setup!.strategy = "BREAKOUT";
           report.chart.strategy_notes = ["BREAKOUT: triggered above the 55-session high."];
         })}
       />,
@@ -290,7 +290,10 @@ describe("chart", () => {
         symbol="AAPL"
         candles={candles}
         levels={[]}
-        report={reportWith((report) => (report.chart.strategy = null))}
+        report={reportWith((report) => {
+          report.chart.setup = null;
+          report.chart.watch_for = "watching";
+        })}
       />,
     );
     expect(screen.queryByText(/SETUP$/)).not.toBeInTheDocument();
