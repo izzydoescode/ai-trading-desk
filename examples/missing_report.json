@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
-  "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+  "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
   "symbol": "AAPL",
-  "analysis_timestamp": "2026-10-28T07:55:06.428110Z",
+  "analysis_timestamp": "2026-11-17T00:53:06.624609Z",
   "evaluated_as_of": "2025-04-23T22:00:00Z",
   "mode": "deterministic",
   "data": {
@@ -10,7 +10,7 @@
     "source": "bundled-synthetic-fixture",
     "interval": "1d",
     "synthetic": true,
-    "retrieved_at": "2026-10-28T07:55:06.426326Z",
+    "retrieved_at": "2026-11-17T00:53:06.622695Z",
     "candles": [
       {
         "timestamp": "2025-04-14T21:00:00Z",
@@ -87,7 +87,10 @@
     "sma50": null,
     "rsi14": null,
     "atr14": null,
-    "return20_pct": null
+    "return20_pct": null,
+    "relative_volume20": null,
+    "high20": null,
+    "low20": null
   },
   "technical": {
     "classification": "INSUFFICIENT_DATA",
@@ -128,23 +131,23 @@
   "dissent": [],
   "trace": [
     {
-      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
       "agent": "market_data",
       "status": "ok",
-      "duration_ms": 1.422,
+      "duration_ms": 1.008,
       "provider": "bundled-synthetic-fixture",
       "error": null
     },
     {
-      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
       "agent": "quality_audit",
       "status": "degraded",
-      "duration_ms": 0.017,
+      "duration_ms": 0.016,
       "provider": "python",
       "error": "Data quality gate failed"
     },
     {
-      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
       "agent": "technical",
       "status": "ok",
       "duration_ms": 0.001,
@@ -152,7 +155,7 @@
       "error": null
     },
     {
-      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
       "agent": "contrarian",
       "status": "ok",
       "duration_ms": 0.001,
@@ -160,7 +163,7 @@
       "error": null
     },
     {
-      "run_id": "255b5630-0d58-4e24-83a1-3cefe8b58184",
+      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
       "agent": "synthesis",
       "status": "ok",
       "duration_ms": 0.0,
