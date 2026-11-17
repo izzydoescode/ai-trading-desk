@@ -30,6 +30,8 @@ ACTION_HELPERS = {
     "hold_flat_and_losing",
     "no_sleep",
     "notes_for",
+    "open_long_then_touch_both",
+    "run_until_a_day_touches_stop_and_target",
     "open_short",
     "parse_resolved",
     "run_report_cli",

@@ -580,6 +580,18 @@ class ExitReason(StrEnum):
     KILL_SWITCH = "KILL_SWITCH"
 
 
+class SameBarResolution(StrEnum):
+    """How an exit was decided on a bar that touched both the stop and the target.
+
+    A daily bar cannot say which level was reached first. INTRADAY means minute bars for
+    that session settled it. ASSUMED_STOP_FIRST means they could not (none supplied, none
+    available, or both levels inside one minute), so the worse outcome was taken.
+    """
+
+    INTRADAY = "INTRADAY"
+    ASSUMED_STOP_FIRST = "ASSUMED_STOP_FIRST"
+
+
 class Position(Model):
     """An open paper position. The stop and target come from the approved plan."""
 
@@ -636,6 +648,8 @@ class ClosedTrade(Model):
     # adverse never above it.
     maximum_favorable_excursion_r: float = Field(ge=0)
     maximum_adverse_excursion_r: float = Field(le=0)
+    # Set only when the closing bar touched both the stop and the target.
+    same_bar_resolution: SameBarResolution | None = None
 
 
 class VenueEventKind(StrEnum):
