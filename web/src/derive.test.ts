@@ -23,11 +23,18 @@ const position: Position = {
 
 const trade = (profitAndLoss: number, rMultiple: number): ClosedTrade => ({
   symbol: "AAPL",
+  strategy: "TREND_CONTINUATION",
   units: 10,
   entry_price: 100,
   exit_price: 100 + profitAndLoss / 10,
+  planned_stop: 95,
+  planned_target: 115,
+  planned_risk_amount: 50,
   opened_at: "2025-03-14T21:00:00Z",
   closed_at: "2025-03-20T21:00:00Z",
+  bars_held: 4,
+  maximum_favorable_excursion_r: Math.max(rMultiple, 0),
+  maximum_adverse_excursion_r: Math.min(rMultiple, 0),
   exit_reason: profitAndLoss > 0 ? "TARGET" : "STOP",
   total_cost: 1,
   profit_and_loss: profitAndLoss,
@@ -251,6 +258,8 @@ describe("performance", () => {
       profitFactor: null,
       averageWinR: null,
       averageLossR: null,
+      averageWinAmount: null,
+      averageLossAmount: null,
       maximumDrawdown: null,
       exposure: null,
       totalReturn: null,
@@ -277,6 +286,8 @@ describe("performance", () => {
     expect(result.profitFactor).toBe(3);
     expect(result.averageWinR).toBe(2.5);
     expect(result.averageLossR).toBe(-1);
+    expect(result.averageWinAmount).toBe(750);
+    expect(result.averageLossAmount).toBe(-250);
     expect(result.maximumDrawdown).toBeCloseTo(-0.02);
     expect(result.exposure).toBe(0.5);
     expect(result.totalReturn).toBeCloseTo(0.01);

@@ -29,7 +29,9 @@ export function Balance({ account, equityCurve, performance }: BalanceProps) {
     ["TRADES", String(performance.tradeCount)],
     ["WIN RATE", percent(performance.winRate, 0)],
     ["PROFIT FACTOR", price(performance.profitFactor)],
-    ["AVG WIN / LOSS", `${rMultiple(performance.averageWinR)} / ${rMultiple(performance.averageLossR)}`],
+    ["AVG WIN / LOSS (R)", `${rMultiple(performance.averageWinR)} / ${rMultiple(performance.averageLossR)}`],
+    ["AVG WIN $", money(performance.averageWinAmount)],
+    ["AVG LOSS $", money(performance.averageLossAmount)],
     ["MAX DRAWDOWN", percent(performance.maximumDrawdown)],
     ["EXPOSURE", percent(performance.exposure, 0)],
   ];
@@ -65,7 +67,7 @@ export function Balance({ account, equityCurve, performance }: BalanceProps) {
       ) : (
         <p className="empty equity-curve">Equity curve appears once bars arrive.</p>
       )}
-      <dl className="tiles tiles-3">
+      <dl className="tiles tiles-4">
         {stats.map(([label, value]) => (
           <div key={label} className="tile">
             <dt>{label}</dt>

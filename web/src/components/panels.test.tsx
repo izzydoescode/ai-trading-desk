@@ -349,6 +349,7 @@ describe("balance", () => {
     rerender(<Balance account={null} equityCurve={[]} performance={performance(null, [])} />);
     expect(screen.getByText("NO OPEN POSITION")).toBeInTheDocument();
     expect(screen.getByText("– / –")).toBeInTheDocument();
+    expect(within(screen.getByText("AVG WIN $").parentElement!).getByText("–")).toBeInTheDocument();
   });
 });
 

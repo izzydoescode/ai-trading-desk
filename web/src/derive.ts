@@ -283,6 +283,9 @@ export interface Performance {
   profitFactor: number | null;
   averageWinR: number | null;
   averageLossR: number | null;
+  /** Average winning and losing trade in dollars; a loss is negative. */
+  averageWinAmount: number | null;
+  averageLossAmount: number | null;
   maximumDrawdown: number | null;
   exposure: number | null;
   totalReturn: number | null;
@@ -311,6 +314,8 @@ export function performance(account: Account | null, equityCurve: EquityPoint[])
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
     averageWinR: average(wins.map((trade) => trade.r_multiple)),
     averageLossR: average(losses.map((trade) => trade.r_multiple)),
+    averageWinAmount: average(wins.map((trade) => trade.profit_and_loss)),
+    averageLossAmount: average(losses.map((trade) => trade.profit_and_loss)),
     maximumDrawdown: equityCurve.length ? maximumDrawdown : null,
     exposure: equityCurve.length
       ? equityCurve.filter((point) => point.has_open_position).length / equityCurve.length
