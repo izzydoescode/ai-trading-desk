@@ -12,12 +12,25 @@ The review page (F9 REVIEW in the terminal) and the weekly report (`desk report`
 - Model spend is logged but not journalled, so the weekly report cannot total it. Recording each metered call in the journal would fix that.
 - Cost: none. Both read local records.
 
-### Decide when shorts are allowed
+### Shorts: still off by default
 
-The short side is built (see "Both sides" in `CLAUDE.md`) and is off by default (`--sides long`). In the first in-sample backtest it lost: short-only made 1 winner in 17 trades (-7.78%) over a window in which SPY rose 26.55%, and running both sides returned -0.52% against +6.59% long-only. Shorting individual downtrends inside a rising market did not work there.
+The short side is built (see "Both sides" in `CLAUDE.md`) and off by default (`--sides long`). A market-trend rule now guards it: a short is taken only when the benchmark (SPY) is itself in a bearish trend (`--market-trend shorts`, the default).
 
-- Candidate rule to test in-sample: allow shorts only when the benchmark (SPY) is itself in a bearish trend, and longs only when it is bullish or neutral.
-- Until that is tested, the desk runs long-only unless `--sides both` or `--sides short` is passed.
+In-sample, 3 Feb 2025 to 29 May 2026, ten symbols, $100,000, SPY +26.55%:
+
+| Sides | Market-trend rule | Return | Max drawdown | Trades | Win rate |
+|---|---|---:|---:|---:|---:|
+| long | shorts | +6.59% | -2.72% | 16 | 43.75% |
+| long | both | +6.59% | -2.72% | 16 | 43.75% |
+| short | off | -7.78% | -9.79% | 17 | 5.88% |
+| short | shorts | +0.35% | -2.94% | 8 | 12.50% |
+| both | off | -0.52% | -3.45% | 12 | 25.00% |
+| both | shorts | +1.01% | -3.98% | 21 | 23.81% |
+
+- The rule removes most of the short-side loss, but the short-only result is one winner in eight trades: not evidence of an edge.
+- Trading both sides still returns less than long-only, so long-only stays the default.
+- The window is one long rising market. The rule has not been tested through a sustained decline; that needs older history.
+- Requiring a non-bearish market for longs (`--market-trend both`) changed nothing in this window.
 - Borrow fees and margin interest are not modelled; add them before trusting any short result.
 
 ### Live polling: what is left
