@@ -31,6 +31,7 @@ ACTION_HELPERS = {
     "no_sleep",
     "notes_for",
     "open_short",
+    "parse_resolved",
     "run",
     "run_cli_in_process",
     "short_real_wait",

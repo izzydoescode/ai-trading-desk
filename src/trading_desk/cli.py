@@ -39,6 +39,7 @@ from trading_desk.observability import (
 from trading_desk.paper.journal import Journal
 from trading_desk.server import DeskSession, ReplaySettings, create_app
 from trading_desk.settings import load_env_file
+from trading_desk.tools.alpaca import AlpacaBarsProvider, AlpacaClient, AlpacaNewsFeed
 from trading_desk.tools.historical_data import (
     CachingProvider,
     CsvDirectoryProvider,
@@ -49,18 +50,20 @@ from trading_desk.tools.market_data import (
     FixtureProvider,
     MarketDataProvider,
 )
-from trading_desk.tools.news import FinnhubNewsFeed, NewsFeed
+from trading_desk.tools.news import FallbackNewsFeed, FinnhubNewsFeed, NewsFeed
 from trading_desk.tools.sentiment import HeadlineToneFeed, SentimentFeed
 
 logger = get_logger("cli")
 
-DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
+# "auto" uses Alpaca when its keys are configured and the bundled fixture otherwise.
+DATA_SOURCES = ["auto", "alpaca", "fixture", "alpha-vantage", "yahoo", "csv"]
 DEFAULT_PAPER_EQUITY = 100_000.0
 DEFAULT_CACHE_DIRECTORY = Path("data/market_cache")
 DEFAULT_HOLDOUT_LEDGER = Path("research/holdout_log.jsonl")
 DEFAULT_MODEL_CACHE_DIRECTORY = Path("data/model_cache")
 DEFAULT_NEWS_CACHE_DIRECTORY = Path("data/news_cache")
-NEWS_SOURCES = ["none", "finnhub"]
+# "auto" uses Alpaca news with Finnhub as its backup, whichever of them is configured.
+NEWS_SOURCES = ["auto", "alpaca", "finnhub", "none"]
 SIDE_CHOICES = {
     "both": (TradeSide.LONG, TradeSide.SHORT),
     "long": (TradeSide.LONG,),
@@ -118,8 +121,48 @@ def markdown(report: Report) -> str:
     return "\n".join(lines + ["", report.purpose, ""])
 
 
+def alpaca_keys() -> tuple[str, str] | None:
+    """The Alpaca key id and secret from the environment, or None if either is missing."""
+    key_id, secret_key = (
+        os.environ.get("ALPACA_API_KEY_ID"),
+        os.environ.get("ALPACA_API_SECRET_KEY"),
+    )
+    return (key_id, secret_key) if key_id and secret_key else None
+
+
+def build_alpaca_client(client: httpx.AsyncClient) -> AlpacaClient:
+    """An authenticated Alpaca data client, or a clear error naming the missing keys."""
+    keys = alpaca_keys()
+    if keys is None:
+        raise ValueError(
+            "Set ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY in .env or the shell for Alpaca"
+        )
+    return AlpacaClient(*keys, client)
+
+
+def resolve_automatic_sources(args) -> None:
+    """Replace "auto" with a concrete choice: Alpaca when its keys are configured, and the
+    offline fallbacks otherwise, so the desk works out of the box either way.
+
+    A fixture scenario asked for by name always means the fixture.
+    """
+    has_alpaca = alpaca_keys() is not None
+    if args.source == "auto":
+        args.source = "alpaca" if has_alpaca and args.scenario == "trend" else "fixture"
+    if getattr(args, "news", None) == "auto":
+        if args.source == "fixture":
+            # Real headlines beside synthetic prices would mislead.
+            args.news = "none"
+        elif has_alpaca:
+            args.news = "alpaca"
+        else:
+            args.news = "finnhub" if os.environ.get("FINNHUB_API_KEY") else "none"
+
+
 def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
     """Create the market data source the user asked for, failing loudly if unconfigured."""
+    if args.source == "alpaca":
+        return AlpacaBarsProvider(build_alpaca_client(client))
     if args.source == "alpha-vantage":
         key = os.environ.get("ALPHAVANTAGE_API_KEY")
         if not key:
@@ -143,10 +186,16 @@ def build_news_feed(args, client: httpx.AsyncClient) -> NewsFeed | None:
     """Create the news feed SNOWDEN reads, or None so it abstains for lack of a source."""
     if args.news == "none":
         return None
-    key = os.environ.get("FINNHUB_API_KEY")
-    if not key:
-        raise ValueError("Set FINNHUB_API_KEY in .env or the shell for --news finnhub")
-    return FinnhubNewsFeed(key, client, args.news_cache_dir)
+    finnhub_key = os.environ.get("FINNHUB_API_KEY")
+    if args.news == "finnhub":
+        if not finnhub_key:
+            raise ValueError("Set FINNHUB_API_KEY in .env or the shell for --news finnhub")
+        return FinnhubNewsFeed(finnhub_key, client, args.news_cache_dir)
+    # Alpaca is the main feed; Finnhub covers for it when Alpaca fails, if it is configured.
+    alpaca_feed = AlpacaNewsFeed(build_alpaca_client(client), args.news_cache_dir)
+    if not finnhub_key:
+        return alpaca_feed
+    return FallbackNewsFeed(alpaca_feed, FinnhubNewsFeed(finnhub_key, client, args.news_cache_dir))
 
 
 def build_sentiment_feed(
@@ -448,7 +497,12 @@ def add_data_arguments(command: argparse.ArgumentParser) -> None:
     """Add the options every data-reading command shares: source, scenario, CSV and cache folders,
     evaluation time, output path and verbosity.
     """
-    command.add_argument("--source", choices=DATA_SOURCES, default="fixture")
+    command.add_argument(
+        "--source",
+        choices=DATA_SOURCES,
+        default="auto",
+        help="Market data (default: alpaca when its keys are set, else the bundled fixture)",
+    )
     command.add_argument("--scenario", choices=["trend", "conflict", "missing"], default="trend")
     command.add_argument("--csv-dir", type=Path, help="Folder of <SYMBOL>.csv daily bars")
     command.add_argument(
@@ -554,8 +608,9 @@ def build_parser() -> argparse.ArgumentParser:
         news_command.add_argument(
             "--news",
             choices=NEWS_SOURCES,
-            default="none",
-            help="News feed for SNOWDEN (default: none, SNOWDEN abstains)",
+            default="auto",
+            help="News feed for SNOWDEN (default: alpaca with finnhub as backup when "
+            "configured; none with fixture data)",
         )
         news_command.add_argument(
             "--news-cache-dir", type=Path, default=DEFAULT_NEWS_CACHE_DIRECTORY
@@ -659,6 +714,7 @@ def main() -> int:
     load_env_file()
     parser = build_parser()
     args = parser.parse_args()
+    resolve_automatic_sources(args)
     if args.source != "fixture" and args.scenario != "trend":
         parser.error("--scenario applies only to fixture data")
     is_server = args.command == "desk" and args.desk_command == "serve"
