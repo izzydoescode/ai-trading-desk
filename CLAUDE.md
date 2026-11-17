@@ -108,6 +108,8 @@ Both external dependencies are `typing.Protocol`s with a `name` attribute, injec
 - `MarketDataProvider.fetch(symbol) -> MarketData` (`tools/market_data.py`): `FixtureProvider` (synthetic JSON loaded via `importlib.resources` from `trading_desk.fixtures`, so fixtures ship in the wheel) and `AlphaVantageProvider` (unadjusted daily bars).
 - `ReasoningProvider.reason(role, context) -> Analysis` (`llm.py`): `OpenAIProvider` calls the Responses API directly over httpx — no SDK, `store=false`, one stateless call per role with its own prompt from `PROMPTS`.
 
+- `NewsFeed.fetch(symbol, start, end) -> list[NewsItem]` (`tools/news.py`): `FinnhubNewsFeed` fetches company news one calendar week at a time, caches finished weeks on disk, spaces requests under the free-tier rate limit and sends the key in a header. SNOWDEN's graph node asks for the week ending at `as_of`; a failed or slow feed makes SNOWDEN abstain (class name only in the trace), never "no news". News informs dissent and display; it does not gate trades, so backtests stay offline. Enable with `--news finnhub` on `desk decide`, `scan` or `serve`. There is no sentiment feed yet: FAMA abstains unless a `SentimentReading` is supplied.
+
 Both adapters share a pattern: three attempts with exponential backoff for transport errors, HTTP 429, and 5xx only; other HTTP errors fail immediately. The graph wraps each provider call in an overall `asyncio.wait_for` deadline. External failures are reported as errors — synthetic data is never substituted.
 
 ### Desk server (`server/`)
