@@ -56,7 +56,7 @@ npm --prefix web run build          # writes web/dist; `desk serve` then serves 
 npm --prefix web run e2e            # Playwright: starts `desk serve` itself on :8137 (build first)
 ```
 
-`.github/workflows/web.yml` runs `npm ci`, typecheck, tests with coverage, build and `npm audit` for `web/`.
+`.github/workflows/web.yml` runs `npm ci`, typecheck, tests with coverage, build and `npm audit` for `web/`. The audit blocks on shipped dependencies only (`--omit=dev`); build and test tools are audited in a second, report-only step, because the picomatch advisory GHSA-fc5q-39xc-vjpf has no patched release yet. Make that step blocking again when one exists.
 
 CI (`.github/workflows/ci.yml`) runs exactly: `uv sync --locked`, pytest, `ruff check`, `ruff format --check`, and the `missing` scenario smoke run, on Python 3.11–3.14. Run all four before considering a change done.
 
