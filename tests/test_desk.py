@@ -326,3 +326,82 @@ async def test_watchlist_scan_asks_the_feed_once_per_symbol():
     )
     assert sorted(symbol for symbol, _, _ in news_feed.requests) == ["AAPL", "MSFT"]
     assert len(reports) == 2
+
+
+class ScriptedSentimentFeed:
+    name = "scripted-sentiment"
+
+    def __init__(self, bullish=0, bearish=0, neutral=0, error=None, delay_seconds=0.0):
+        self.counts, self.error, self.delay_seconds = (
+            (bullish, bearish, neutral),
+            error,
+            delay_seconds,
+        )
+        self.requests = []
+
+    async def fetch(self, symbol, start, end):
+        import asyncio
+
+        self.requests.append((symbol, start, end))
+        await asyncio.sleep(self.delay_seconds)
+        if self.error is not None:
+            raise self.error
+        bullish, bearish, neutral = self.counts
+        return SentimentReading(
+            source="scripted tone",
+            bullish_post_count=bullish,
+            bearish_post_count=bearish,
+            neutral_post_count=neutral,
+            item_label="headline",
+        )
+
+
+async def test_sentiment_feed_gives_fama_a_point_in_time_reading():
+    sentiment_feed = ScriptedSentimentFeed(bullish=12, bearish=8, neutral=5)
+    report = await decide(sentiment_feed=sentiment_feed)
+    assert sentiment_feed.requests == [("AAPL", AS_OF - timedelta(days=7), AS_OF)]
+    assert report.sentiment.mood_score == 60
+    assert report.sentiment.hype_risk is HypeRisk.LOW
+    assert trace_entry(report, "fama").provider == "scripted-sentiment"
+    assert report.decision.action is DecisionAction.TRADE
+
+
+async def test_one_sided_headline_tone_can_only_make_the_desk_wait():
+    report = await decide(sentiment_feed=ScriptedSentimentFeed(bullish=19, bearish=1))
+    assert report.sentiment.hype_risk is HypeRisk.HIGH
+    assert report.risk.verdict is RiskVerdict.APPROVE
+    assert report.decision.action is DecisionAction.WAIT
+    assert report.decision.plan is None
+    assert "hype" in report.decision.summary
+
+
+async def test_a_failing_sentiment_feed_makes_fama_abstain_and_hides_the_error_text():
+    sentiment_feed = ScriptedSentimentFeed(error=RuntimeError("sk-SECRET-VALUE rejected"))
+    report = await decide(sentiment_feed=sentiment_feed)
+    assert report.sentiment.abstain
+    fama_trace = trace_entry(report, "fama")
+    assert (fama_trace.status, fama_trace.error) == (
+        "degraded",
+        "Sentiment retrieval failed: RuntimeError",
+    )
+    assert "SECRET-VALUE" not in report.model_dump_json()
+    assert report.decision.action is DecisionAction.TRADE
+
+
+async def test_a_slow_sentiment_feed_times_out_and_fama_abstains(monkeypatch):
+    monkeypatch.setattr("trading_desk.desk.SENTIMENT_TIMEOUT_SECONDS", 0.01)
+    report = await decide(sentiment_feed=ScriptedSentimentFeed(delay_seconds=0.5))
+    assert report.sentiment.abstain
+    assert trace_entry(report, "fama").error == "Sentiment retrieval failed: TimeoutError"
+
+
+async def test_a_reading_supplied_directly_wins_over_the_feed():
+    sentiment_feed = ScriptedSentimentFeed(bullish=19, bearish=1)
+    report = await decide(
+        sentiment_feed=sentiment_feed,
+        sentiment_reading=SentimentReading(
+            source="supplied", bullish_post_count=10, bearish_post_count=10
+        ),
+    )
+    assert sentiment_feed.requests == []
+    assert report.sentiment.mood_score == 50

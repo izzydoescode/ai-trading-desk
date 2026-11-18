@@ -665,3 +665,117 @@ def test_desk_decide_reads_dated_news_from_finnhub(monkeypatch, tmp_path, capsys
     assert news_requests and all("test-finnhub-key" not in str(r.url) for r in news_requests)
     assert "test-finnhub-key" not in captured.out + captured.err
     assert (tmp_path / "finnhub" / "AAPL").is_dir()
+
+
+@pytest.mark.parametrize(
+    "extra_arguments",
+    [
+        ["--sentiment", "headline-tone"],
+        ["--sentiment", "headline-tone", "--news", "finnhub"],
+    ],
+)
+def test_headline_tone_needs_both_a_news_feed_and_a_model(
+    monkeypatch, capsys, fake_uvicorn_server, extra_arguments
+):
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
+    for command in (["decide", "AAPL"], ["serve"]):
+        exit_code = run_cli_in_process(
+            monkeypatch, "desk", *command, "--as-of", HISTORICAL_EVALUATION_TIME, *extra_arguments
+        )
+        captured = capsys.readouterr()
+        assert exit_code == 2
+        assert "--news finnhub and --provider" in captured.err
+        assert captured.out == ""
+
+
+def test_desk_decide_reads_headline_tone_with_claude_and_meters_it(monkeypatch, tmp_path, capsys):
+    from types import SimpleNamespace
+
+    import httpx
+
+    from trading_desk import cli
+    from trading_desk.models import GateVerdict, HeadlineTone
+
+    headlines = [f"Headline {index}" for index in range(24)]
+
+    def finnhub(request):
+        week_start = datetime.fromisoformat(request.url.params["from"]).replace(tzinfo=UTC)
+        if week_start.date().isoformat() != "2025-04-21":
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "datetime": int(datetime(2025, 4, 22, 10, tzinfo=UTC).timestamp()) + index,
+                    "headline": headline,
+                    "source": "Reuters",
+                    "url": None,
+                }
+                for index, headline in enumerate(headlines)
+            ],
+        )
+
+    model_requests = []
+
+    class FakeMessages:
+        async def parse(self, **request):
+            model_requests.append(request)
+            if request["output_format"] is HeadlineTone:
+                supplied = json.loads(request["messages"][0]["content"])["headlines"]
+                tones = ["BULLISH"] * 13 + ["BEARISH"] * 9 + ["NEUTRAL"] * 2
+                parsed = HeadlineTone(
+                    labels=[
+                        {"number": entry["number"], "tone": tone}
+                        for entry, tone in zip(supplied, tones, strict=True)
+                    ]
+                )
+            else:
+                parsed = GateVerdict(approve=True, rationale="Reports agree.", concerns=[])
+            return SimpleNamespace(
+                parsed_output=parsed,
+                stop_reason="end_turn",
+                usage=SimpleNamespace(input_tokens=700, output_tokens=120),
+            )
+
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "trading_desk.cli.httpx.AsyncClient",
+        lambda: real_async_client(transport=httpx.MockTransport(finnhub)),
+    )
+    monkeypatch.setattr("trading_desk.tools.news.FINNHUB_MINIMUM_REQUEST_INTERVAL_SECONDS", 0)
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        cli.anthropic, "AsyncAnthropic", lambda: SimpleNamespace(messages=FakeMessages())
+    )
+    exit_code = run_cli_in_process(
+        monkeypatch,
+        "desk",
+        "decide",
+        "AAPL",
+        "--as-of",
+        HISTORICAL_EVALUATION_TIME,
+        "--news",
+        "finnhub",
+        "--news-cache-dir",
+        str(tmp_path / "news"),
+        "--sentiment",
+        "headline-tone",
+        "--provider",
+        "anthropic",
+        "--model-cache-dir",
+        str(tmp_path / "model"),
+    )
+    captured = capsys.readouterr()
+    desk_report = json.loads(captured.out)
+    assert exit_code == 0
+    sentiment = desk_report["sentiment"]
+    assert sentiment["abstain"] is False
+    assert sentiment["mood_score"] == 59
+    assert "not social posts" in sentiment["summary"]
+    assert [request["output_format"].__name__ for request in model_requests] == [
+        "HeadlineTone",
+        "GateVerdict",
+    ]
+    assert "calls=2" in captured.err
+    assert "cost=$0.0003" in captured.err

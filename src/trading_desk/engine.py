@@ -37,6 +37,7 @@ from trading_desk.paper.venue import PaperVenue
 from trading_desk.tools.historical_data import preload_history
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
+from trading_desk.tools.sentiment import SentimentFeed
 
 EventListener = Callable[[DeskEvent], None]
 
@@ -141,6 +142,7 @@ async def run_engine(
     on_event: EventListener | None = None,
     on_bar: BarListener | None = None,
     news_feed: NewsFeed | None = None,
+    sentiment_feed: SentimentFeed | None = None,
     liquidate_at_end: bool = True,
 ) -> EngineResult:
     """Drive the desk over every bar in `[start, end]` and return what happened.
@@ -153,7 +155,14 @@ async def run_engine(
     run_id = str(uuid4())
     recorder = _EventRecorder(run_id, journal, on_event)
     preloaded_provider = await preload_history(data_provider, symbols)
-    desk = Desk(preloaded_provider, market_profile, limits, setup_rules, news_feed=news_feed)
+    desk = Desk(
+        preloaded_provider,
+        market_profile,
+        limits,
+        setup_rules,
+        news_feed=news_feed,
+        sentiment_feed=sentiment_feed,
+    )
 
     bars_by_symbol: dict[str, dict[datetime, Candle]] = {}
     for symbol in symbols:

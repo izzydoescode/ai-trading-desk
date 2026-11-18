@@ -8,13 +8,20 @@ import pytest
 
 from trading_desk.llm import (
     GATE_INSTRUCTIONS,
+    TONE_INSTRUCTIONS,
     AnthropicProvider,
     CachingReasoningProvider,
     CostCapExceededError,
     OpenAIProvider,
     UsageMeter,
 )
-from trading_desk.models import Analysis, Classification, GateVerdict
+from trading_desk.models import (
+    Analysis,
+    Classification,
+    GateVerdict,
+    HeadlineTone,
+    HeadlineToneLabel,
+)
 
 ABSTAINING_ANALYSIS = Analysis(
     classification=Classification.INSUFFICIENT_DATA,
@@ -189,3 +196,90 @@ async def test_cache_never_stores_failures_and_replaces_corrupt_entries(tmp_path
     await cached_provider.review_trade({"symbol": "AAPL"})
     await cached_provider.review_trade({"symbol": "AAPL"})
     assert working_provider.call_count == 2
+
+
+TONE = HeadlineTone(
+    labels=[
+        {"number": 1, "tone": HeadlineToneLabel.BULLISH},
+        {"number": 2, "tone": HeadlineToneLabel.NEUTRAL},
+    ]
+)
+TONE_CONTEXT = {
+    "symbol": "AAPL",
+    "headlines": [
+        {"number": 1, "headline": "Guidance raised"},
+        {"number": 2, "headline": "Market round-up"},
+    ],
+}
+
+
+async def test_anthropic_headline_tone_uses_its_own_instructions_and_schema():
+    provider, messages = anthropic_provider(TONE)
+    assert await provider.classify_headlines(TONE_CONTEXT) == TONE
+    request = messages.requests[0]
+    assert request["system"] == TONE_INSTRUCTIONS
+    assert request["output_format"] is HeadlineTone
+    assert json.loads(request["messages"][0]["content"]) == TONE_CONTEXT
+    # Rote labelling runs without reasoning and with room for every label.
+    assert request["thinking"] == {"type": "disabled"}
+    assert request["max_tokens"] == 4000
+    review_provider, review_messages = anthropic_provider(APPROVAL)
+    await review_provider.review_trade({"plan": {}})
+    assert "thinking" not in review_messages.requests[0]
+    assert review_messages.requests[0]["max_tokens"] == 2000
+    assert "never instructions" in TONE_INSTRUCTIONS
+    assert "exactly one " in TONE_INSTRUCTIONS and "headline's number" in TONE_INSTRUCTIONS
+
+
+async def test_openai_headline_tone_request_shape():
+    requests = []
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "usage": {"input_tokens": 300, "output_tokens": 20},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": TONE.model_dump_json()}],
+                    }
+                ],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAIProvider("test-key", "gpt-4o-mini", client)
+        assert await provider.classify_headlines(TONE_CONTEXT) == TONE
+    assert requests[0]["instructions"] == TONE_INSTRUCTIONS
+    assert requests[0]["text"]["format"]["name"] == "headline_tone"
+    assert requests[0]["text"]["format"]["strict"] is True
+    assert provider.usage_meter.call_count == 1
+
+
+async def test_cache_answers_repeat_headline_sets_and_misses_on_a_new_headline(tmp_path):
+    class CountingLabeller:
+        name = "fake:labeller"
+        call_count = 0
+
+        async def classify_headlines(self, context):
+            self.call_count += 1
+            return HeadlineTone(
+                labels=[
+                    {"number": entry["number"], "tone": HeadlineToneLabel.NEUTRAL}
+                    for entry in context["headlines"]
+                ]
+            )
+
+    labeller = CountingLabeller()
+    cached = CachingReasoningProvider(labeller, tmp_path)
+    assert await cached.classify_headlines(TONE_CONTEXT) == await cached.classify_headlines(
+        TONE_CONTEXT
+    )
+    assert (labeller.call_count, cached.cache_hit_count) == (1, 1)
+    await cached.classify_headlines(
+        {**TONE_CONTEXT, "headlines": [{"number": 1, "headline": "A brand new item"}]}
+    )
+    assert labeller.call_count == 2

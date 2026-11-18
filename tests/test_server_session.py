@@ -299,3 +299,25 @@ async def test_session_passes_its_news_feed_to_the_desk_and_names_it():
     assert news_report["verified_facts"][0]["headline"] == "Dated item"
     plain_session, _ = session_that()
     assert plain_session.snapshot()["news_source"] is None
+    assert plain_session.snapshot()["sentiment_source"] is None
+
+
+async def test_session_passes_its_sentiment_feed_to_the_desk_and_names_it():
+    from trading_desk.agents.fama import SentimentReading
+
+    class SteadyTone:
+        name = "steady-tone"
+
+        async def fetch(self, symbol, start, end):
+            return SentimentReading(
+                source="steady", bullish_post_count=12, bearish_post_count=8, item_label="headline"
+            )
+
+    async def sleeper(seconds):
+        await asyncio.sleep(0)
+
+    desk_session = DeskSession(FixtureProvider(), sentiment_feed=SteadyTone(), sleep=sleeper)
+    assert desk_session.snapshot()["sentiment_source"] == "steady-tone"
+    await desk_session.start(replay_settings())
+    await desk_session.wait_until_finished()
+    assert desk_session.reports_by_symbol["AAPL"]["sentiment"]["mood_score"] == 60

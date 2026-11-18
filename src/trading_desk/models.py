@@ -364,6 +364,27 @@ class GateVerdict(Model):
     concerns: list[str] = Field(default_factory=list)
 
 
+class HeadlineToneLabel(StrEnum):
+    BULLISH = "BULLISH"
+    BEARISH = "BEARISH"
+    NEUTRAL = "NEUTRAL"
+
+
+class NumberedHeadlineLabel(Model):
+    number: int = Field(ge=1)
+    tone: HeadlineToneLabel
+
+
+class HeadlineTone(Model):
+    """A model's tone label for each supplied headline, keyed by the headline's number.
+
+    Numbers, not list position, tie a label to its headline: a model that drops or
+    repeats an entry is then detected instead of silently shifting every label.
+    """
+
+    labels: list[NumberedHeadlineLabel]
+
+
 class DeskReport(Model):
     """One complete six-agent decision for one symbol at one evaluation time."""
 
