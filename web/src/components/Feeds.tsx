@@ -3,6 +3,7 @@ import { plainReason, price, shortDate } from "../format";
 import type { DeskEvent, DeskReport } from "../types";
 
 export const JOURNAL_ROWS = 12;
+export const NEWS_ROWS = 4;
 const AGENT_NAMES = ["HAWKEYE", "NEO", "SNOWDEN", "FAMA", "ODIN", "PICARD"];
 
 interface WatchlistProps {
@@ -57,12 +58,17 @@ export function Watchlist({ rows, focusedSymbol, onSelect }: WatchlistProps) {
   );
 }
 
-export function NewsMood({ report }: { report: DeskReport | undefined }) {
+interface NewsMoodProps {
+  report: DeskReport | undefined;
+  newsSource?: string | null;
+}
+
+export function NewsMood({ report, newsSource }: NewsMoodProps) {
   const news = report?.news;
   const sentiment = report?.sentiment;
   const items = news
     ? [
-        ...news.verified_facts.map((item) => ({ item, tag: "VERIFIED FACT", tone: "up" })),
+        ...news.verified_facts.map((item) => ({ item, tag: "DATED ITEM", tone: "up" })),
         ...news.commentary.map((item) => ({ item, tag: "COMMENTARY", tone: "caution" })),
       ]
     : [];
@@ -70,9 +76,9 @@ export function NewsMood({ report }: { report: DeskReport | undefined }) {
     <section className="panel news" aria-label="News and sentiment">
       <div className="title">
         <span className="tag agent-snowden">F3 NEWS</span>
-        <span className="label">SNOWDEN · dated sources only</span>
+        <span className="label">SNOWDEN · dated sources only{newsSource ? ` · ${newsSource}` : ""}</span>
       </div>
-      {items.map(({ item, tag, tone }) => (
+      {items.slice(0, NEWS_ROWS).map(({ item, tag, tone }) => (
         <div key={`${item.published_at}${item.headline}`} className={`news-item tone-border-${tone}`}>
           <div className="label small">
             {shortDate(item.published_at)} · {item.source} ·{" "}
@@ -82,6 +88,7 @@ export function NewsMood({ report }: { report: DeskReport | undefined }) {
         </div>
       ))}
       <p className={items.length ? "label small" : "empty"}>
+        {items.length > NEWS_ROWS && `+${items.length - NEWS_ROWS} more. `}
         {news?.summary ?? "No news report yet."}
       </p>
       {news?.red_flags.map((flag) => (

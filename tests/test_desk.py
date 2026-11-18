@@ -236,3 +236,93 @@ async def test_model_cannot_approve_what_the_risk_manager_rejected():
     report = await decide(llm=reviewer, limits=RiskLimits(kill_switch_engaged=True))
     assert report.decision.action is DecisionAction.REJECT
     assert reviewer.contexts == []
+
+
+class RecordingNewsFeed:
+    """A news feed double that remembers the windows it was asked for."""
+
+    name = "recording-news-feed"
+
+    def __init__(self, news_items=None, error=None, delay_seconds=0.0):
+        self.news_items, self.error, self.delay_seconds = news_items or [], error, delay_seconds
+        self.requests = []
+
+    async def fetch(self, symbol, start, end):
+        import asyncio
+
+        self.requests.append((symbol, start, end))
+        await asyncio.sleep(self.delay_seconds)
+        if self.error is not None:
+            raise self.error
+        return self.news_items
+
+
+def news_item(published_at, headline="Guidance raised", **overrides):
+    return NewsItem(
+        **{"published_at": published_at, "source": "Reuters", "headline": headline, **overrides}
+    )
+
+
+def trace_entry(report, agent):
+    return next(entry for entry in report.trace if entry.agent == agent)
+
+
+async def test_news_feed_is_asked_for_the_week_ending_at_the_evaluation_time():
+    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    report = await decide(news_feed=news_feed)
+    assert news_feed.requests == [("AAPL", AS_OF - timedelta(days=7), AS_OF)]
+    assert not report.news.abstain
+    assert [item.headline for item in report.news.verified_facts] == ["Guidance raised"]
+    assert trace_entry(report, "snowden").provider == "recording-news-feed"
+    assert trace_entry(report, "snowden").status == "ok"
+
+
+async def test_a_feed_that_returns_future_news_cannot_leak_it_into_the_report():
+    news_feed = RecordingNewsFeed(
+        [
+            news_item(AS_OF + timedelta(hours=1), "Tomorrow's headline"),
+            news_item(AS_OF - timedelta(hours=1), "Today's headline"),
+        ]
+    )
+    report = await decide(news_feed=news_feed)
+    assert [item.headline for item in report.news.verified_facts] == ["Today's headline"]
+    assert "Tomorrow" not in report.model_dump_json()
+
+
+async def test_a_failing_news_feed_makes_snowden_abstain_and_hides_the_error_text():
+    news_feed = RecordingNewsFeed(error=RuntimeError("https://vendor.example/?token=SECRET-VALUE"))
+    report = await decide(news_feed=news_feed)
+    assert report.news.abstain
+    assert report.news.summary == "No news source was supplied to the desk."
+    snowden_trace = trace_entry(report, "snowden")
+    assert snowden_trace.status == "degraded"
+    assert snowden_trace.error == "News retrieval failed: RuntimeError"
+    assert "News retrieval failed: RuntimeError" in report.limitations
+    assert "SECRET-VALUE" not in report.model_dump_json()
+    # A broken feed is a missing input, not a reason to trade or to veto.
+    assert report.decision.action is DecisionAction.TRADE
+
+
+async def test_a_slow_news_feed_times_out_and_snowden_abstains(monkeypatch):
+    monkeypatch.setattr("trading_desk.desk.NEWS_TIMEOUT_SECONDS", 0.01)
+    report = await decide(news_feed=RecordingNewsFeed(delay_seconds=0.5))
+    assert report.news.abstain
+    assert trace_entry(report, "snowden").error == "News retrieval failed: TimeoutError"
+
+
+async def test_items_supplied_directly_win_over_the_feed():
+    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=1), "From the feed")])
+    report = await decide(
+        news_feed=news_feed, news_items=[news_item(AS_OF - timedelta(hours=2), "Supplied")]
+    )
+    assert news_feed.requests == []
+    assert [item.headline for item in report.news.verified_facts] == ["Supplied"]
+
+
+async def test_watchlist_scan_asks_the_feed_once_per_symbol():
+    news_feed = RecordingNewsFeed([news_item(AS_OF - timedelta(hours=5))])
+    reports = await scan_watchlist(
+        ["AAPL", "MSFT"], FixtureProvider(), account(), AS_OF, news_feed=news_feed
+    )
+    assert sorted(symbol for symbol, _, _ in news_feed.requests) == ["AAPL", "MSFT"]
+    assert len(reports) == 2

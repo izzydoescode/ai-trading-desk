@@ -23,6 +23,7 @@ from trading_desk.models import DeskEvent, Model, RiskLimits, VenueEvent
 from trading_desk.paper import PaperVenue
 from trading_desk.paper.journal import Journal
 from trading_desk.tools.market_data import MarketDataProvider
+from trading_desk.tools.news import NewsFeed
 
 MAXIMUM_BARS_PER_SECOND = 1000.0
 RECENT_EVENT_LIMIT = 200
@@ -78,9 +79,11 @@ class DeskSession:
         limits: RiskLimits = DEFAULT_RISK_LIMITS,
         setup_rules: SetupRules = DEFAULT_SETUP_RULES,
         journal: Journal | None = None,
+        news_feed: NewsFeed | None = None,
         sleep: Sleeper = asyncio.sleep,
     ):
         self.data_provider = data_provider
+        self.news_feed = news_feed
         self.market_profile, self.limits, self.setup_rules = market_profile, limits, setup_rules
         self.journal = journal
         self._sleep = sleep
@@ -168,6 +171,7 @@ class DeskSession:
             "run_id": self.run_id,
             "market": self.market_profile.name,
             "data_source": self.data_provider.name,
+            "news_source": self.news_feed.name if self.news_feed else None,
             "settings": self.settings.model_dump(mode="json") if self.settings else None,
             "limits": self.limits.model_dump(mode="json"),
             "setup_rules": self.setup_rules.model_dump(mode="json"),
@@ -264,6 +268,7 @@ class DeskSession:
                 journal=self.journal,
                 on_event=self._on_event,
                 on_bar=self._on_bar,
+                news_feed=self.news_feed,
             )
             self.status = SessionStatus.FINISHED
         except asyncio.CancelledError:

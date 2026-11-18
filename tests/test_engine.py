@@ -240,3 +240,22 @@ async def test_bar_hook_does_not_change_the_outcome():
     (with_hook, _), (without_hook, _) = await run(on_bar=ignore), await run()
     assert with_hook.final_equity == without_hook.final_equity
     assert len(with_hook.events) == len(without_hook.events)
+
+
+async def test_news_feed_is_queried_point_in_time_on_every_decision():
+    class RecordingNewsFeed:
+        name = "recording-news-feed"
+
+        def __init__(self):
+            self.window_ends = []
+
+        async def fetch(self, symbol, start, end):
+            self.window_ends.append(end)
+            return []
+
+    news_feed = RecordingNewsFeed()
+    result, _ = await run(news_feed=news_feed, liquidate_at_end=False)
+    decision_times = [event.timestamp for event in result.events if event.agent == "PICARD"]
+    # Each decision asked for news ending at its own bar, never later.
+    assert news_feed.window_ends == decision_times
+    assert news_feed.window_ends == sorted(news_feed.window_ends)

@@ -71,7 +71,7 @@ export function App() {
           focusedSymbol={symbol}
           onSelect={controls.select}
         />
-        <NewsMood report={report} />
+        <NewsMood report={report} newsSource={desk?.news_source} />
         <Journal events={desk?.recent_events ?? []} />
       </div>
       <Pipeline stages={pipelineStages(report)} />
