@@ -313,6 +313,8 @@ async def run_engine(
                 risk_verdict=desk_report.risk.verdict.value,
             )
             if desk_report.decision.action is DecisionAction.TRADE:
+                if journal is not None:
+                    journal.record_decision(run_id, desk_report)
                 submit_event = venue.submit(desk_report.decision.plan, bar_time)
                 recorder.emit_venue_event(submit_event)
                 has_submitted_this_bar = submit_event.kind is VenueEventKind.SUBMIT

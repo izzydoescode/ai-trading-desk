@@ -170,11 +170,19 @@ export interface Position {
 
 export interface ClosedTrade {
   symbol: string;
+  strategy: TradeSetup["strategy"];
   units: number;
   entry_price: number;
   exit_price: number;
+  planned_stop: number;
+  planned_target: number;
+  planned_risk_amount: number;
   opened_at: string;
   closed_at: string;
+  bars_held: number;
+  /** Best and worst open result while held, in multiples of planned risk. */
+  maximum_favorable_excursion_r: number;
+  maximum_adverse_excursion_r: number;
   exit_reason: string;
   total_cost: number;
   profit_and_loss: number;

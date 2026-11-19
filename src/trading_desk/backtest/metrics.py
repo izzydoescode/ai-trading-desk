@@ -13,9 +13,18 @@ from datetime import datetime
 
 from trading_desk.engine import EngineResult
 from trading_desk.markets import MarketProfile
-from trading_desk.models import Candle, Model
+from trading_desk.models import Candle, ClosedTrade, Model
 
 DECISION_KINDS = ("TRADE", "WAIT", "REJECT")
+
+
+class StrategyResult(Model):
+    """How one entry strategy did in a window, so strategies can be compared on their own."""
+
+    trade_count: int
+    win_rate: float | None
+    profit_and_loss: float
+    average_r: float | None
 
 
 class PerformanceMetrics(Model):
@@ -41,6 +50,13 @@ class PerformanceMetrics(Model):
     expectancy: float | None
     average_win_r: float | None
     average_loss_r: float | None
+    # The same averages in dollars, and the single best and worst trade. A loss is negative.
+    average_win_amount: float | None
+    average_loss_amount: float | None
+    largest_win_amount: float | None
+    largest_loss_amount: float | None
+    average_bars_held: float | None
+    results_by_strategy: dict[str, StrategyResult]
     total_costs: float
     exit_reason_counts: dict[str, int]
     decision_counts: dict[str, int]
@@ -85,6 +101,23 @@ def buy_and_hold_return(
     if len(window_closes) < 2:
         return None
     return window_closes[-1] / window_closes[0] - 1
+
+
+def results_by_strategy(trades: Sequence[ClosedTrade]) -> dict[str, StrategyResult]:
+    """Group closed trades by the strategy that opened them and summarise each group."""
+    trades_by_strategy: dict[str, list[ClosedTrade]] = {}
+    for trade in trades:
+        trades_by_strategy.setdefault(trade.strategy.value, []).append(trade)
+    return {
+        strategy_name: StrategyResult(
+            trade_count=len(strategy_trades),
+            win_rate=sum(trade.profit_and_loss > 0 for trade in strategy_trades)
+            / len(strategy_trades),
+            profit_and_loss=round(sum(trade.profit_and_loss for trade in strategy_trades), 2),
+            average_r=statistics.fmean(trade.r_multiple for trade in strategy_trades),
+        )
+        for strategy_name, strategy_trades in sorted(trades_by_strategy.items())
+    }
 
 
 def compute_metrics(
@@ -142,6 +175,20 @@ def compute_metrics(
         average_loss_r=(
             statistics.fmean(trade.r_multiple for trade in losing_trades) if losing_trades else None
         ),
+        average_win_amount=(
+            round(gross_profit / len(winning_trades), 2) if winning_trades else None
+        ),
+        average_loss_amount=(round(-gross_loss / len(losing_trades), 2) if losing_trades else None),
+        largest_win_amount=(
+            max(trade.profit_and_loss for trade in winning_trades) if winning_trades else None
+        ),
+        largest_loss_amount=(
+            min(trade.profit_and_loss for trade in losing_trades) if losing_trades else None
+        ),
+        average_bars_held=(
+            statistics.fmean(trade.bars_held for trade in trades) if trades else None
+        ),
+        results_by_strategy=results_by_strategy(trades),
         total_costs=round(sum(trade.total_cost for trade in trades), 2),
         exit_reason_counts=dict(Counter(trade.exit_reason.value for trade in trades)),
         decision_counts={

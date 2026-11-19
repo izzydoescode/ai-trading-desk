@@ -25,19 +25,19 @@ def make_candle(day, open_price, high, low, close):
 
 def make_trade_plan(symbol="AAPL", units=10, entry=100.0, stop=95.0, target=110.0, **overrides):
     """Test helper (not a test): builds trade plan for the tests below."""
-    return TradePlan(
-        strategy="TREND_CONTINUATION",
-        symbol=symbol,
-        side=TradeSide.LONG,
-        entry_reference=entry,
-        stop=stop,
-        target=target,
-        units=units,
-        notional=units * entry,
-        risk_amount=units * (entry - stop),
-        reward_to_risk=(target - entry) / (entry - stop),
-        **overrides,
-    )
+    fields = {
+        "strategy": "TREND_CONTINUATION",
+        "symbol": symbol,
+        "side": TradeSide.LONG,
+        "entry_reference": entry,
+        "stop": stop,
+        "target": target,
+        "units": units,
+        "notional": units * entry,
+        "risk_amount": units * (entry - stop),
+        "reward_to_risk": (target - entry) / (entry - stop),
+    }
+    return TradePlan(**{**fields, **overrides})
 
 
 def make_paper_venue(market=FREE_MARKET, starting_cash=10_000.0):
@@ -261,3 +261,54 @@ def test_only_a_band_following_position_lets_its_target_be_moved():
     assert [event.reason for event in exit_events] == ["TARGET"]
     assert band_venue.closed_trades[0].exit_price == pytest.approx(104.0)
     assert band_venue.closed_trades[0].profit_and_loss > 0
+
+
+def test_a_closed_trade_records_its_plan_holding_time_and_how_far_it_travelled():
+    """Verifies: the trade record keeps what review needs: the strategy, the planned stop,
+    target and risk, how many bars it was held, and the best and worst points reached in R.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(strategy="BREAKOUT"), DAY_ONE)  # entry 100, stop 95
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=101, low=99, close=100))
+    paper_venue.process_bar("AAPL", make_candle(2, open_price=100, high=106, low=98, close=105))
+    assert paper_venue.positions["AAPL"].bars_held == 2
+    paper_venue.process_bar("AAPL", make_candle(3, open_price=105, high=111, low=104, close=110))
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.strategy.value == "BREAKOUT"
+    assert (closed_trade.planned_stop, closed_trade.planned_target) == (95.0, 110.0)
+    assert closed_trade.planned_risk_amount == 50.0
+    assert closed_trade.bars_held == 2  # two full bars held before the exit bar
+    assert closed_trade.exit_reason is ExitReason.TARGET
+    # Best point: the target at 110, two risk units above entry. Worst: 98, 0.4 below.
+    assert closed_trade.maximum_favorable_excursion_r == pytest.approx(2.0)
+    assert closed_trade.maximum_adverse_excursion_r == pytest.approx(-0.4)
+
+
+def test_a_stopped_trade_shows_it_never_went_anywhere():
+    """Verifies: a trade stopped out at once records a full unit of adverse excursion and
+    almost none in its favour, which is what marks a bad entry rather than a tight stop.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=100.5, low=94, close=95))
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.exit_reason is ExitReason.STOP
+    assert closed_trade.bars_held == 0
+    assert closed_trade.maximum_adverse_excursion_r == pytest.approx(-1.0)
+    assert closed_trade.maximum_favorable_excursion_r == 0.0
+
+
+def test_a_band_following_trade_keeps_the_target_it_was_planned_with():
+    """Verifies: when the target moves with the band, the record still shows the target the
+    trade was approved with, so plan and outcome can be compared.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(target_follows_upper_band=True), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=101, low=99.5, close=100))
+    paper_venue.move_target("AAPL", 104.0)
+    paper_venue.process_bar(
+        "AAPL", make_candle(2, open_price=101, high=104.5, low=100.5, close=104)
+    )
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.planned_target == 110.0
+    assert closed_trade.exit_price == pytest.approx(104.0)

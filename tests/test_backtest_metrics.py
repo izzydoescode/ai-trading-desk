@@ -20,15 +20,29 @@ def make_bar_time(offset):
     return START + timedelta(days=offset)
 
 
-def make_closed_trade(profit_and_loss, r_multiple, exit_reason=ExitReason.TARGET, total_cost=1.0):
+def make_closed_trade(
+    profit_and_loss,
+    r_multiple,
+    exit_reason=ExitReason.TARGET,
+    total_cost=1.0,
+    strategy="TREND_CONTINUATION",
+    bars_held=1,
+):
     """Test helper (not a test): builds closed trade for the tests below."""
     return ClosedTrade(
         symbol="AAPL",
+        strategy=strategy,
         units=10,
         entry_price=100.0,
         exit_price=101.0,
+        planned_stop=95.0,
+        planned_target=115.0,
+        planned_risk_amount=50.0,
         opened_at=make_bar_time(0),
         closed_at=make_bar_time(1),
+        bars_held=bars_held,
+        maximum_favorable_excursion_r=max(r_multiple, 0.0),
+        maximum_adverse_excursion_r=min(r_multiple, 0.0),
         exit_reason=exit_reason,
         total_cost=total_cost,
         profit_and_loss=profit_and_loss,
@@ -166,3 +180,54 @@ def test_profit_factor_is_undefined_when_nothing_lost():
     assert metrics.profit_factor is None
     assert metrics.average_loss_r is None
     assert metrics.win_rate == 1.0
+
+
+def test_average_win_and_loss_are_reported_in_dollars_with_the_extremes():
+    """Verifies: the scorecard gives the average winning and losing trade in dollars, the
+    single largest win and loss, and the average holding time, not only R multiples.
+    """
+    trades = [
+        make_closed_trade(900.0, 3.0, bars_held=10),
+        make_closed_trade(300.0, 1.0, bars_held=4),
+        make_closed_trade(-250.0, -1.0, ExitReason.STOP, bars_held=2),
+        make_closed_trade(-150.0, -0.6, ExitReason.STOP, bars_held=4),
+    ]
+    metrics = compute_metrics(make_engine_result([100, 110], trades=trades), US_EQUITIES)
+    assert metrics.average_win_amount == 600.0
+    assert metrics.average_loss_amount == -200.0
+    assert metrics.largest_win_amount == 900.0
+    assert metrics.largest_loss_amount == -250.0
+    assert metrics.average_bars_held == 5.0
+
+
+def test_dollar_averages_are_missing_not_zero_when_there_is_nothing_to_average():
+    """Verifies: with no trades, or no losing trades, the dollar statistics are None."""
+    no_trades = compute_metrics(make_engine_result([100, 100]), US_EQUITIES)
+    assert no_trades.average_win_amount is None
+    assert no_trades.average_loss_amount is None
+    assert no_trades.largest_loss_amount is None
+    assert no_trades.average_bars_held is None
+    assert no_trades.results_by_strategy == {}
+    only_wins = compute_metrics(
+        make_engine_result([100, 110], trades=[make_closed_trade(10.0, 1.0)]), US_EQUITIES
+    )
+    assert only_wins.average_win_amount == 10.0
+    assert only_wins.average_loss_amount is None
+
+
+def test_results_are_broken_down_by_the_strategy_that_opened_each_trade():
+    """Verifies: each strategy gets its own trade count, win rate, profit and average R, so
+    one strategy's results cannot hide another's.
+    """
+    trades = [
+        make_closed_trade(600.0, 2.0, strategy="BREAKOUT"),
+        make_closed_trade(-300.0, -1.0, ExitReason.STOP, strategy="BREAKOUT"),
+        make_closed_trade(450.0, 1.5, strategy="BOLLINGER_REVERSION"),
+    ]
+    metrics = compute_metrics(make_engine_result([100, 110], trades=trades), US_EQUITIES)
+    assert list(metrics.results_by_strategy) == ["BOLLINGER_REVERSION", "BREAKOUT"]
+    breakout = metrics.results_by_strategy["BREAKOUT"]
+    assert (breakout.trade_count, breakout.win_rate) == (2, 0.5)
+    assert breakout.profit_and_loss == 300.0
+    assert breakout.average_r == 0.5
+    assert metrics.results_by_strategy["BOLLINGER_REVERSION"].win_rate == 1.0
