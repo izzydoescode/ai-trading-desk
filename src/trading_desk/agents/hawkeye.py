@@ -29,18 +29,27 @@ VOLUME_SURGE_POINTS = 0.1
 VERDICT_ORDER = {ScoutVerdict.WATCH: 0, ScoutVerdict.SKIP: 1, ScoutVerdict.NEED_MORE_DATA: 2}
 
 
-SIGNAL_DESCRIPTIONS = {
+# A close at least this far above the previous close makes the symbol a big gainer.
+BIG_GAINER_MINIMUM_PERCENT = 35.0
+
+LEVEL_SIGNAL_DESCRIPTIONS = {
     ScoutSignalKind.NEW_52_WEEK_HIGH: "New 52-week high above",
     ScoutSignalKind.NEW_52_WEEK_LOW: "New 52-week low below",
-    ScoutSignalKind.BREAKOUT_ABOVE_PRIOR_DAY_HIGH: "Close broke out above the prior day's high",
     ScoutSignalKind.BREAKDOWN_BELOW_PRIOR_DAY_LOW: "Close broke down below the prior day's low",
 }
 
 
+def describe_signal(signal: ScoutSignal) -> str:
+    """The start of a signal's reason line, before the volume confirmation."""
+    if signal.kind is ScoutSignalKind.BIG_PERCENT_GAINER:
+        return f"Big % gainer: {signal.change_pct:+.2f}% from the previous close {signal.level:.4f}"
+    return f"{LEVEL_SIGNAL_DESCRIPTIONS[signal.kind]} {signal.level:.4f}"
+
+
 def find_signals(indicators: Indicators, has_volume_surge: bool) -> list[ScoutSignal]:
-    """New yearly extremes and breaks of the prior day's range, each marked as
-    confirmed only when a volume surge came with it."""
-    candidates = [
+    """New yearly extremes, a big one-day percent gain and a break of the prior day's
+    low, each marked as confirmed only when a volume surge came with it."""
+    level_candidates = [
         (
             ScoutSignalKind.NEW_52_WEEK_HIGH,
             indicators.prior_high252,
@@ -54,12 +63,6 @@ def find_signals(indicators: Indicators, has_volume_surge: bool) -> list[ScoutSi
             False,
         ),
         (
-            ScoutSignalKind.BREAKOUT_ABOVE_PRIOR_DAY_HIGH,
-            indicators.previous_high,
-            indicators.close,
-            True,
-        ),
-        (
             ScoutSignalKind.BREAKDOWN_BELOW_PRIOR_DAY_LOW,
             indicators.previous_low,
             indicators.close,
@@ -67,7 +70,7 @@ def find_signals(indicators: Indicators, has_volume_surge: bool) -> list[ScoutSi
         ),
     ]
     signals = []
-    for kind, level, price, is_bullish in candidates:
+    for kind, level, price, is_bullish in level_candidates:
         if level is None or price is None:
             continue
         if (price > level) if is_bullish else (price < level):
@@ -79,6 +82,21 @@ def find_signals(indicators: Indicators, has_volume_surge: bool) -> list[ScoutSi
                     volume_confirmed=has_volume_surge,
                 )
             )
+    day_change_pct, previous_close = indicators.day_change_pct, indicators.previous_close
+    if (
+        day_change_pct is not None
+        and previous_close is not None
+        and day_change_pct >= BIG_GAINER_MINIMUM_PERCENT
+    ):
+        signals.append(
+            ScoutSignal(
+                kind=ScoutSignalKind.BIG_PERCENT_GAINER,
+                level=previous_close,
+                is_bullish=True,
+                volume_confirmed=has_volume_surge,
+                change_pct=day_change_pct,
+            )
+        )
     return signals
 
 
@@ -148,7 +166,7 @@ def scout(symbol: str, indicators: Indicators, blockers: list[str]) -> ScoutRepo
             if signal.volume_confirmed
             else "without a volume surge: unconfirmed, low probability"
         )
-        reasons.append(f"{SIGNAL_DESCRIPTIONS[signal.kind]} {signal.level:.4f}, {confirmation}.")
+        reasons.append(f"{describe_signal(signal)}, {confirmation}.")
     if indicators.prior_high252 is None:
         reasons.append(f"52-week range unavailable: {indicators.candle_count} sessions of history.")
     has_confirmed_breakdown = any(
@@ -175,7 +193,7 @@ def scout(symbol: str, indicators: Indicators, blockers: list[str]) -> ScoutRepo
 def rank_watchlist(scout_reports: Iterable[ScoutReport]) -> list[ScoutReport]:
     """Order reports for the desk: WATCH first, best score first, missing data last.
 
-    Within a verdict, a symbol with a volume-confirmed breakout or new high goes
+    Within a verdict, a symbol with a volume-confirmed big gain or new high goes
     ahead of the rest, then score decides, then a plain volume surge breaks ties.
     Unconfirmed moves earn no priority.
     """
