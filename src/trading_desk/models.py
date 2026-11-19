@@ -69,6 +69,9 @@ class Indicators(Model):
     # Levels from BEFORE the latest session, so the latest bar can break them.
     previous_high: float | None = None
     previous_low: float | None = None
+    previous_close: float | None = None
+    # Latest close against the previous close, in percent.
+    day_change_pct: float | None = None
     prior_high20: float | None = None
     prior_high55: float | None = None
     prior_high252: float | None = None
@@ -95,6 +98,8 @@ class Evidence(Model):
         "latest_low",
         "previous_high",
         "previous_low",
+        "previous_close",
+        "day_change_pct",
         "prior_high20",
         "prior_high55",
         "prior_high252",
