@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import json
-import logging
 import os
 import sys
 from datetime import UTC, datetime, timedelta
@@ -30,6 +29,12 @@ from trading_desk.llm import (
 )
 from trading_desk.markets import US_EQUITIES
 from trading_desk.models import AccountSnapshot, DeskReport, Report
+from trading_desk.observability import (
+    DEFAULT_SERVER_LOG_FILE,
+    LOG_LEVELS,
+    configure_logging,
+    get_logger,
+)
 from trading_desk.paper.journal import Journal
 from trading_desk.server import DeskSession, ReplaySettings, create_app
 from trading_desk.settings import load_env_file
@@ -45,6 +50,8 @@ from trading_desk.tools.market_data import (
 )
 from trading_desk.tools.news import FinnhubNewsFeed, NewsFeed
 from trading_desk.tools.sentiment import HeadlineToneFeed, SentimentFeed
+
+logger = get_logger("cli")
 
 DATA_SOURCES = ["fixture", "alpha-vantage", "yahoo", "csv"]
 DEFAULT_PAPER_EQUITY = 100_000.0
@@ -371,6 +378,7 @@ def run_serve_command(args) -> int:
     try:
         asyncio.run(serve_desk(args, replay_settings))
     except (ValueError, OSError) as exc:
+        logger.error("Configuration or output error", exc_info=True)
         print(f"Configuration/output error: {exc}", file=sys.stderr)
         return 2
     return 0
@@ -408,7 +416,17 @@ def add_data_arguments(command: argparse.ArgumentParser) -> None:
     )
     command.add_argument("--as-of", help="Timezone-aware historical evaluation timestamp")
     command.add_argument("--output", type=Path, help="JSON output path (stdout if omitted)")
-    command.add_argument("--verbose", action="store_true", help="JSON node logs on stderr")
+    command.add_argument("--verbose", action="store_true", help="Shorthand for --log-level DEBUG")
+    command.add_argument(
+        "--log-level",
+        choices=LOG_LEVELS,
+        help="Console and file log detail (default: WARNING, or INFO for desk serve)",
+    )
+    command.add_argument(
+        "--log-file",
+        type=Path,
+        help="Also write logs to this file (desk serve defaults to logs/trading-desk.log)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -526,6 +544,7 @@ def run_backtest_command(args) -> int:
         print(f"Holdout refused: {exc}", file=sys.stderr)
         return 2
     except (ValueError, OSError) as exc:
+        logger.error("Configuration or output error", exc_info=True)
         print(f"Configuration/output error: {exc}", file=sys.stderr)
         return 2
     print(describe_metrics("In-sample", backtest_report.in_sample), file=sys.stderr)
@@ -547,6 +566,7 @@ def run_desk_command(args) -> int:
     try:
         desk_reports = asyncio.run(execute_desk(args))
     except (ValueError, OSError) as exc:
+        logger.error("Configuration or output error", exc_info=True)
         print(f"Configuration/output error: {exc}", file=sys.stderr)
         return 2
     if args.desk_command == "decide":
@@ -580,15 +600,28 @@ def main() -> int:
     args = parser.parse_args()
     if args.source != "fixture" and args.scenario != "trend":
         parser.error("--scenario applies only to fixture data")
-    if args.verbose:
-        logging.basicConfig(level=logging.WARNING, format="%(message)s")
-        logging.getLogger("trading_desk").setLevel(logging.INFO)
+    is_server = args.command == "desk" and args.desk_command == "serve"
+    log_level = args.log_level or ("DEBUG" if args.verbose else "INFO" if is_server else "WARNING")
+    log_file = args.log_file or (DEFAULT_SERVER_LOG_FILE if is_server else None)
+    try:
+        configure_logging(log_level, log_file)
+    except OSError as exc:
+        print(f"Configuration/output error: cannot write the log file: {exc}", file=sys.stderr)
+        return 2
+    logger.info(
+        "Command started command=%s source=%s log_level=%s log_file=%s",
+        " ".join(filter(None, [args.command, getattr(args, "desk_command", None)])),
+        args.source,
+        log_level,
+        log_file,
+    )
     if args.command == "desk":
         return run_desk_command(args)
     print(f"Data={args.source}; reasoning={args.mode}. Research only.", file=sys.stderr)
     try:
         report = asyncio.run(execute(args))
     except (ValueError, OSError) as exc:
+        logger.error("Configuration or output error", exc_info=True)
         print(f"Configuration/output error: {exc}", file=sys.stderr)
         return 2
     content = report.model_dump_json(indent=2) + "\n"

@@ -46,11 +46,13 @@ from trading_desk.models import (
     SentimentReport,
     Trace,
 )
+from trading_desk.observability import get_logger
 from trading_desk.tools.market_data import MarketDataProvider
 from trading_desk.tools.news import NewsFeed
 from trading_desk.tools.sentiment import SentimentFeed
 
 RULES_PROVIDER_NAME = "deterministic-rules"
+logger = get_logger("desk")
 MODEL_REVIEW_TIMEOUT_SECONDS = 100
 # Generous: a cold cache queues one rate-limited request per symbol per week.
 NEWS_TIMEOUT_SECONDS = 60
@@ -159,6 +161,12 @@ def build_desk_graph(
                     timeout=NEWS_TIMEOUT_SECONDS,
                 )
             except Exception as exc:
+                logger.warning(
+                    "News feed failed symbol=%s feed=%s; SNOWDEN abstains",
+                    state["symbol"],
+                    news_feed.name,
+                    exc_info=True,
+                )
                 # Exception text can contain credential-bearing URLs; record only the class.
                 # SNOWDEN then abstains: a failed feed is never read as "no news".
                 error = f"News retrieval failed: {type(exc).__name__}"
@@ -172,6 +180,12 @@ def build_desk_graph(
                     timeout=SENTIMENT_TIMEOUT_SECONDS,
                 )
             except Exception as exc:
+                logger.warning(
+                    "News tone failed symbol=%s feed=%s; SNOWDEN lists items only",
+                    state["symbol"],
+                    news_tone_feed.name,
+                    exc_info=True,
+                )
                 # Without a tone reading SNOWDEN falls back to listing the items (NEUTRAL).
                 error = f"News tone failed: {type(exc).__name__}"
         news_report = snowden.report(news_items, state["as_of"], headline_tone)
@@ -197,6 +211,12 @@ def build_desk_graph(
                     timeout=SENTIMENT_TIMEOUT_SECONDS,
                 )
             except Exception as exc:
+                logger.warning(
+                    "Sentiment feed failed symbol=%s feed=%s; FAMA abstains",
+                    state["symbol"],
+                    sentiment_feed.name,
+                    exc_info=True,
+                )
                 # Class name only, and FAMA abstains: a failed reading is not a calm crowd.
                 error = f"Sentiment retrieval failed: {type(exc).__name__}"
         sentiment_report = fama.report(sentiment_reading)
@@ -238,6 +258,12 @@ def build_desk_graph(
             )
             model_review = GateVerdict.model_validate(model_review.model_dump())
         except Exception as error:
+            logger.warning(
+                "Model review failed symbol=%s model=%s; trade becomes WAIT",
+                state["symbol"],
+                llm.name,
+                exc_info=True,
+            )
             # Fail closed: no review means no trade. Record the class, never the text.
             failure = f"Model review unavailable: {type(error).__name__}"
             return {

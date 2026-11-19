@@ -74,7 +74,9 @@ def record_trace(
         provider=provider,
         error=error,
     )
-    logger.info(entry.model_dump_json())
+    # One line per agent per symbol per bar: debug detail. Failures are logged where they
+    # happen, with their stack trace.
+    logger.debug(entry.model_dump_json())
     return [entry]
 
 
@@ -101,12 +103,19 @@ async def load_market_data(
         if data.errors:
             error = "Market data provider reported errors"
     except Exception as exc:
+        logger.warning(
+            "Market data retrieval failed symbol=%s provider=%s",
+            symbol,
+            data_provider.name,
+            exc_info=True,
+        )
         # Exception text can contain credential-bearing URLs; record only the class.
         error = f"Market data retrieval failed: {type(exc).__name__}"
         data = MarketData(symbol=symbol, source=data_provider.name, errors=[error])
     try:
         indicators = calculate(data.candles)
     except (ValueError, ArithmeticError) as exc:
+        logger.warning("Indicator calculation rejected input symbol=%s", symbol, exc_info=True)
         error = f"Indicator calculation rejected input: {type(exc).__name__}"
         data = data.model_copy(update={"errors": data.errors + [error]})
         indicators = Indicators(candle_count=len(data.candles))
@@ -232,6 +241,12 @@ def build_graph(
                     if actual is None or abs(actual - item.value) > 1e-8:
                         raise ValueError("ungrounded evidence")
             except Exception as exc:
+                logger.warning(
+                    "Model reasoning unusable role=%s symbol=%s",
+                    role,
+                    state["symbol"],
+                    exc_info=True,
+                )
                 error = f"Invalid or unavailable reasoning: {type(exc).__name__}"
                 result = technical.abstention(error)
         return {

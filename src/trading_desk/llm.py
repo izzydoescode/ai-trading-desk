@@ -20,6 +20,9 @@ import httpx
 from pydantic import BaseModel
 
 from trading_desk.models import Analysis, GateVerdict, HeadlineTone
+from trading_desk.observability import get_logger
+
+logger = get_logger("llm")
 
 PROMPT_VERSION = "2026-11-17c"
 MAX_OUTPUT_TOKENS = 2000
@@ -112,18 +115,39 @@ class UsageMeter:
 
     def check_budget(self) -> None:
         if self.maximum_cost_usd is not None and self.cost_usd >= self.maximum_cost_usd:
+            logger.warning(
+                "Model spending cap reached cap=$%.2f spent=$%.4f calls=%d; call refused",
+                self.maximum_cost_usd,
+                self.cost_usd,
+                self.call_count,
+            )
             raise CostCapExceededError(
                 f"Model spending cap of ${self.maximum_cost_usd:.2f} reached"
             )
 
     def record(self, model: str, input_tokens: int, output_tokens: int) -> None:
+        """Add one call's tokens and dollar cost to the run total and log it.
+
+        An unrecognised model is priced at the highest listed rate, so it can never look free.
+        """
         input_price, output_price = MODEL_PRICES_PER_MILLION_TOKENS.get(
             model, FALLBACK_PRICE_PER_MILLION_TOKENS
         )
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
         self.call_count += 1
-        self.cost_usd += (input_tokens * input_price + output_tokens * output_price) / 1_000_000
+        call_cost_usd = (input_tokens * input_price + output_tokens * output_price) / 1_000_000
+        self.cost_usd += call_cost_usd
+        logger.info(
+            "Model call model=%s input_tokens=%d output_tokens=%d call_cost=$%.5f "
+            "run_total=$%.4f calls=%d",
+            model,
+            input_tokens,
+            output_tokens,
+            call_cost_usd,
+            self.cost_usd,
+            self.call_count,
+        )
 
 
 # ---------------------------------------------------------------------------
