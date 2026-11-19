@@ -1,6 +1,11 @@
 import pytest
 
-from trading_desk.agents.hawkeye import WATCH_SCORE_THRESHOLD, rank_watchlist, scout
+from trading_desk.agents.hawkeye import (
+    BIG_GAINER_MINIMUM_PERCENT,
+    WATCH_SCORE_THRESHOLD,
+    rank_watchlist,
+    scout,
+)
 from trading_desk.models import Indicators, ScoutReport, ScoutVerdict
 
 
@@ -185,14 +190,62 @@ def test_the_same_high_without_volume_is_recorded_as_unconfirmed_and_low_probabi
     assert any("unconfirmed, low probability" in reason for reason in report.reasons)
 
 
-def test_close_above_the_prior_days_high_is_a_breakout_and_an_intraday_poke_is_not():
-    """Verifies: close above the prior days high is a breakout and an intraday poke is not."""
-    breakout = scout("AAPL", make_indicators(previous_high=109.0), blockers=[])
-    assert signal_kinds(breakout) == {"BREAKOUT_ABOVE_PRIOR_DAY_HIGH": True}
-    poke = scout("AAPL", make_indicators(previous_high=110.5, latest_high=112.0), blockers=[])
-    assert signal_kinds(poke) == {}
-    exactly_at_the_level = scout("AAPL", make_indicators(previous_high=110.0), blockers=[])
-    assert signal_kinds(exactly_at_the_level) == {}
+def test_a_close_thirty_five_percent_above_the_previous_close_is_a_big_gainer():
+    """Verifies: a one-day gain at or above the 35% minimum is a bullish signal that
+    carries the gain and the previous close, and anything smaller is no signal."""
+    gainer = scout("AAPL", make_indicators(previous_close=80.0, day_change_pct=37.5), blockers=[])
+    assert signal_kinds(gainer) == {"BIG_PERCENT_GAINER": True}
+    signal = gainer.signals[0]
+    assert (signal.level, signal.change_pct, signal.is_bullish) == (80.0, 37.5, True)
+    assert (
+        "Big % gainer: +37.50% from the previous close 80.0000, confirmed by the volume surge."
+        in gainer.reasons
+    )
+    exactly_at_the_minimum = scout(
+        "AAPL",
+        make_indicators(previous_close=81.4815, day_change_pct=BIG_GAINER_MINIMUM_PERCENT),
+        [],
+    )
+    assert signal_kinds(exactly_at_the_minimum) == {"BIG_PERCENT_GAINER": True}
+    just_short = scout(
+        "AAPL", make_indicators(previous_close=81.5, day_change_pct=34.99), blockers=[]
+    )
+    assert signal_kinds(just_short) == {}
+
+
+def test_a_big_gain_without_volume_is_unconfirmed_and_a_close_above_yesterdays_high_is_nothing():
+    """Verifies: a big gainer on quiet volume is recorded as unconfirmed, and merely
+    closing above the prior day's high (the retired breakout rule) raises no signal."""
+    quiet_gainer = scout(
+        "AAPL",
+        make_indicators(previous_close=80.0, day_change_pct=37.5, relative_volume20=0.9),
+        blockers=[],
+    )
+    assert signal_kinds(quiet_gainer) == {"BIG_PERCENT_GAINER": False}
+    assert any("unconfirmed, low probability" in reason for reason in quiet_gainer.reasons)
+    above_yesterdays_high = scout(
+        "AAPL", make_indicators(previous_high=109.0, previous_close=108.0, day_change_pct=1.85), []
+    )
+    assert signal_kinds(above_yesterdays_high) == {}
+
+
+def test_only_a_big_gainer_signal_may_carry_a_gain():
+    """Verifies: the signal contract rejects a big gainer without its gain and any
+    other signal that claims one."""
+    from pydantic import ValidationError
+
+    from trading_desk.models import ScoutSignal
+
+    with pytest.raises(ValidationError):
+        ScoutSignal(kind="BIG_PERCENT_GAINER", level=80.0, is_bullish=True, volume_confirmed=True)
+    with pytest.raises(ValidationError):
+        ScoutSignal(
+            kind="NEW_52_WEEK_HIGH",
+            level=80.0,
+            is_bullish=True,
+            volume_confirmed=True,
+            change_pct=40.0,
+        )
 
 
 def test_heavy_volume_breakdown_takes_an_uptrend_off_the_watchlist():
@@ -233,8 +286,8 @@ def test_short_history_says_the_yearly_range_is_unavailable_instead_of_guessing(
     assert not any("unavailable" in reason for reason in with_a_year.reasons)
 
 
-def test_a_confirmed_breakout_outranks_a_higher_score_and_an_unconfirmed_one_does_not():
-    """Verifies: a confirmed breakout outranks a higher score and an unconfirmed one does not."""
+def test_a_confirmed_big_gainer_outranks_a_higher_score_and_an_unconfirmed_one_does_not():
+    """Verifies: a confirmed big gainer outranks a higher score and an unconfirmed one does not."""
     from trading_desk.models import ScoutSignal
 
     def report(symbol, score, volume_confirmed=None):
@@ -306,14 +359,18 @@ def test_short_scoring_mirrors_long_scoring(overrides, expected_score):
     assert report.score == pytest.approx(expected_score)
 
 
-def test_a_heavy_volume_breakout_takes_a_short_candidate_off_the_list():
+def test_a_heavy_volume_big_gain_takes_a_short_candidate_off_the_list():
     """Verifies: the move that disqualifies a short is the opposite of the one that
-    disqualifies a long: a volume-confirmed close above the prior day's high.
+    disqualifies a long: a volume-confirmed big one-day gain.
     """
-    squeezed = scout("NVDA", make_indicators(**DOWNTREND, previous_high=89.0), blockers=[])
-    assert signal_kinds(squeezed) == {"BREAKOUT_ABOVE_PRIOR_DAY_HIGH": True}
+    squeezed = scout(
+        "NVDA",
+        make_indicators(**DOWNTREND, previous_close=65.0, day_change_pct=38.0),
+        blockers=[],
+    )
+    assert signal_kinds(squeezed) == {"BIG_PERCENT_GAINER": True}
     assert squeezed.verdict is ScoutVerdict.SKIP
-    assert "Heavy-volume breakout: not a short candidate today." in squeezed.reasons
+    assert "Heavy-volume move up: not a short candidate today." in squeezed.reasons
     breaking_down = scout("NVDA", make_indicators(**DOWNTREND, previous_low=91.0), blockers=[])
     assert signal_kinds(breaking_down) == {"BREAKDOWN_BELOW_PRIOR_DAY_LOW": True}
     assert breaking_down.verdict is ScoutVerdict.WATCH
