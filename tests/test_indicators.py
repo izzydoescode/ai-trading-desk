@@ -143,6 +143,9 @@ def test_prior_levels_exclude_the_latest_session_so_it_can_break_them():
     assert measurements.prior_high20 == 30.0
     assert (measurements.latest_high, measurements.latest_low) == (100.0, 1.0)
     assert (measurements.previous_high, measurements.previous_low) == (30.0, 25.0)
+    # The day's change is the latest close (50) against the previous close (28).
+    assert measurements.previous_close == 28.0
+    assert measurements.day_change_pct == pytest.approx((50.0 / 28.0 - 1) * 100)
     # high20 still includes today; prior_high20 does not.
     assert measurements.high20 == 100.0
 
@@ -167,6 +170,8 @@ def test_longer_windows_stay_unavailable_until_there_is_enough_history(
     assert (measurements.prior_high252 is not None) is has252
     assert (measurements.prior_low252 is not None) is has252
     assert (measurements.previous_high is not None) is (session_count >= 2)
+    assert (measurements.previous_close is not None) is (session_count >= 2)
+    assert (measurements.day_change_pct is not None) is (session_count >= 2)
 
 
 def test_bollinger_bands_are_two_standard_deviations_around_the_twenty_session_average():
