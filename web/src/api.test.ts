@@ -1,5 +1,13 @@
-import { ApiError, connectEvents, eventsUrl, postControl, RECONNECT_DELAY_MS } from "./api";
-import { cloneSnapshot } from "./test/fixtures";
+import {
+  ApiError,
+  connectEvents,
+  eventsUrl,
+  fetchReview,
+  fetchTradeDecision,
+  postControl,
+  RECONNECT_DELAY_MS,
+} from "./api";
+import { cloneSnapshot, reviewSample, tradeDecisionSample } from "./test/fixtures";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -45,6 +53,32 @@ describe("postControl", () => {
   it("says so when the server cannot be reached", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     await expect(postControl("/replay/start")).rejects.toThrow("The desk server is not reachable.");
+  });
+});
+
+describe("review requests", () => {
+  it("reads the review and a trade's saved decision from their API paths", async () => {
+    const fetchMock = vi.fn(async (path: string) =>
+      new Response(JSON.stringify(path === "/api/review" ? reviewSample : tradeDecisionSample)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await fetchReview()).review.trade_count).toBe(4);
+    expect((await fetchTradeDecision(2)).decision.action).toBe("TRADE");
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/review",
+      "/api/review/trades/2/decision",
+    ]);
+  });
+
+  it("rejects with a plain message when the server refuses, is unreachable or sends rubbish", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    await expect(fetchTradeDecision(9)).rejects.toThrow(
+      new ApiError("The desk refused the request (404)."),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(fetchReview()).rejects.toThrow("The desk server is not reachable.");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>", { status: 200 })));
+    await expect(fetchReview()).rejects.toThrow("could not be read");
   });
 });
 

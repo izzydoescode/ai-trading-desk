@@ -116,6 +116,13 @@ A trade does not have to reach its stop to be closed. `RiskLimits.stalled_trade_
 
 Everything needed to review a trade is kept. `ClosedTrade` carries the strategy, the planned stop, target and risk, bars held, exit reason, costs, P&L in dollars and in R, and the maximum favourable and adverse excursion in R. The journal (`paper/journal.py`, SQLite) stores every desk event with its reason, every closed trade, and, in `trade_decisions`, the full six-agent report behind each TRADE (indicators, every agent's view, every risk check, the plan; the raw bars are left out). `desk serve` keeps a journal at `data/journal.sqlite` by default (`--no-journal` to turn it off); `desk backtest --journal PATH` does the same for a backtest. `PerformanceMetrics` reports average and largest win and loss in dollars, average bars held, and `results_by_strategy`.
 
+### Reviewing trades
+
+`review.py` is arithmetic over saved `ClosedTrade` records and journal events; it never re-runs an agent or a model, and a figure that cannot be computed is `None`, never zero. `review_trades()` gives totals, average win and loss in dollars and R, the biggest win and loss, and results by strategy, symbol, side, exit reason and holding time. `Journal.decision_for_trade()` links a closed trade to the six-agent report that opened it (the latest TRADE decision for its symbol before the entry).
+
+- **Terminal:** the F9 REVIEW panel reads `GET /api/review` (the current run) and reloads when a trade closes. WHY on a trade row opens `GET /api/review/trades/{n}/decision`. Without a journal the review still works from the venue's memory, with no saved decisions.
+- **Weekly report:** `uv run trading-desk desk report [--journal PATH] [--run-id ID] [--week YYYY-MM-DD] [--output week.md]` writes one Monday-to-Sunday week of one run as Markdown: results, every trade, how many ideas were rejected and why. Weeks follow the bars' dates. It defaults to `data/journal.sqlite`, the most recently recorded run and that run's latest week. Model spend is not in the journal; the report says so and points at the log.
+
 ### Provider boundaries
 
 Both external dependencies are `typing.Protocol`s with a `name` attribute, injected into `build_graph()`:
@@ -138,7 +145,7 @@ There is no login, so keep these properties: `desk serve` refuses any non-loopba
 
 ### Terminal UI (`web/`)
 
-One page, no router. `api.ts` is the only file that talks to the server; `state.ts` is a pure reducer that folds the WebSocket messages (`snapshot`, `bar`, `event`, `account`, `status`, `prices`) into one snapshot-shaped object; `derive.ts` turns that into what each panel shows; `components/` only render. Server field names are kept as-is (`types.ts`), so there is no mapping layer to drift. The chart is hand-drawn SVG, not a charting library. Tests replay real server output captured in `web/src/test/fixtures/` (regenerate by running a fixture replay through `DeskSession` if the message shapes change). Missing numbers render as a dash, never zero, and every state has a word or glyph as well as a colour.
+One page, no router. `api.ts` is the only file that talks to the server; `state.ts` is a pure reducer that folds the WebSocket messages (`snapshot`, `bar`, `event`, `account`, `status`, `prices`) into one snapshot-shaped object; `derive.ts` turns that into what each panel shows; `components/` only render. Server field names are kept as-is (`types.ts`), so there is no mapping layer to drift. The chart is hand-drawn SVG, not a charting library. `review.json` and `trade-decision.json` there are `review_trades()` and `Journal.decision_for_trade()` output for the fixture's trade (plus three variants of it, so the breakdowns have more than one row). Tests replay real server output captured in `web/src/test/fixtures/` (regenerate by running a fixture replay through `DeskSession` if the message shapes change). Missing numbers render as a dash, never zero, and every state has a word or glyph as well as a colour.
 
 ### Error and logging hygiene
 

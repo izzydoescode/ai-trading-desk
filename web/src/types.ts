@@ -199,6 +199,55 @@ export interface ClosedTrade {
   r_multiple: number;
 }
 
+/** Results for one slice of the closed trades (a strategy, a symbol, an exit reason...). */
+export interface GroupResult {
+  label: string;
+  trade_count: number;
+  win_count: number;
+  win_rate: number | null;
+  profit_and_loss: number;
+  average_r: number | null;
+  average_win_amount: number | null;
+  average_loss_amount: number | null;
+}
+
+export interface ReviewedTrade {
+  /** Position in the run's list of closed trades, starting at 0. */
+  trade_number: number;
+  trade: ClosedTrade;
+  /** True when the six-agent report behind the trade was kept and can be opened. */
+  has_saved_decision: boolean;
+}
+
+/** GET /api/review: everything the review page shows about the run's closed trades. */
+export interface TradeReview {
+  trade_count: number;
+  win_count: number;
+  loss_count: number;
+  win_rate: number | null;
+  profit_and_loss: number;
+  total_costs: number;
+  average_win_amount: number | null;
+  average_loss_amount: number | null;
+  average_win_r: number | null;
+  average_loss_r: number | null;
+  expectancy_r: number | null;
+  average_bars_held: number | null;
+  largest_win: ClosedTrade | null;
+  largest_loss: ClosedTrade | null;
+  by_strategy: GroupResult[];
+  by_symbol: GroupResult[];
+  by_side: GroupResult[];
+  by_exit_reason: GroupResult[];
+  by_holding_time: GroupResult[];
+  trades: ReviewedTrade[];
+}
+
+export interface ReviewResponse {
+  run_id: string | null;
+  review: TradeReview;
+}
+
 export interface Account {
   starting_cash: number;
   equity: number;

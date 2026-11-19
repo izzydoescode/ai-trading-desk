@@ -32,6 +32,8 @@ ACTION_HELPERS = {
     "notes_for",
     "open_short",
     "parse_resolved",
+    "run_report_cli",
+    "wait_until_finished",
     "run",
     "run_cli_in_process",
     "short_real_wait",

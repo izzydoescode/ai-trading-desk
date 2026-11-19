@@ -7,6 +7,7 @@ import { Journal, NewsMood, Watchlist } from "./components/Feeds";
 import { Floor } from "./components/Floor";
 import { Header } from "./components/Header";
 import { Pipeline } from "./components/Pipeline";
+import { Review } from "./components/Review";
 import { RiskPanel } from "./components/RiskPanel";
 import { Tape } from "./components/Tape";
 import {
@@ -19,6 +20,7 @@ import {
   watchlistRows,
 } from "./derive";
 import { useDesk } from "./useDesk";
+import { useReview } from "./useReview";
 
 export function App() {
   const { state, controls } = useDesk();
@@ -27,6 +29,7 @@ export function App() {
   const report = symbol && desk ? desk.reports_by_symbol[symbol] : undefined;
   const cards = agentCards(desk, symbol);
   const isLive = desk?.mode === "live";
+  const tradeReview = useReview(desk?.run_id ?? null, desk?.account?.closed_trades.length ?? 0);
 
   return (
     <div className="terminal">
@@ -82,6 +85,12 @@ export function App() {
         <NewsMood report={report} newsSource={desk?.news_source} />
         <Journal events={desk?.recent_events ?? []} />
       </div>
+      <Review
+        review={tradeReview.review}
+        opened={tradeReview.opened}
+        onOpenDecision={tradeReview.openDecision}
+        onCloseDecision={tradeReview.closeDecision}
+      />
       <Pipeline stages={pipelineStages(report)} />
       <footer className="label small">
         <span>

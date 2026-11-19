@@ -7,6 +7,7 @@ the journal between runs.
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from trading_desk.models import ClosedTrade, DeskEvent, DeskReport
@@ -48,7 +49,10 @@ class Journal:
     def __init__(self, database_path: Path | str = ":memory:"):
         if database_path != ":memory:":
             Path(database_path).parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(str(database_path))
+        # The desk server builds the journal before its event loop starts, which may be on
+        # another thread. Only one thread ever uses it at a time, so the same-thread check
+        # is switched off rather than worked around.
+        self.connection = sqlite3.connect(str(database_path), check_same_thread=False)
         self.connection.executescript(SCHEMA)
         self.connection.commit()
 
@@ -104,6 +108,30 @@ class Journal:
             (run_id,),
         ).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def decision_for_trade(self, run_id: str, trade: ClosedTrade) -> dict | None:
+        """The saved report behind a closed trade: the latest TRADE decision for its symbol
+        made before the trade opened. None when the run kept no decision for it.
+        """
+        row = self.connection.execute(
+            "SELECT report_json, decided_at FROM trade_decisions WHERE run_id = ? AND symbol = ?",
+            (run_id, trade.symbol),
+        ).fetchall()
+        earlier_decisions = [
+            (datetime.fromisoformat(decided_at), report_json)
+            for report_json, decided_at in row
+            if datetime.fromisoformat(decided_at) < trade.opened_at
+        ]
+        if not earlier_decisions:
+            return None
+        return json.loads(max(earlier_decisions, key=lambda decision: decision[0])[1])
+
+    def latest_run_id(self) -> str | None:
+        """The run that recorded an event most recently, or None for an empty journal."""
+        row = self.connection.execute(
+            "SELECT run_id FROM desk_events ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
+        return row[0] if row else None
 
     def run_ids(self) -> list[str]:
         """Every run that has recorded at least one event, oldest first."""

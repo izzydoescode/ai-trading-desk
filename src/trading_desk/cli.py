@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import anthropic
@@ -37,6 +37,7 @@ from trading_desk.observability import (
     get_logger,
 )
 from trading_desk.paper.journal import Journal
+from trading_desk.review import build_weekly_report, render_weekly_report
 from trading_desk.server import DeskSession, ReplaySettings, create_app
 from trading_desk.settings import load_env_file
 from trading_desk.tools.alpaca import AlpacaBarsProvider, AlpacaClient, AlpacaNewsFeed
@@ -566,6 +567,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="SQLite file to keep every event, trade and trade decision of this backtest",
     )
+    report = desk_commands.add_parser(
+        "report", help="Write the weekly trade report from the journal as Markdown"
+    )
+    report.add_argument(
+        "--journal",
+        type=Path,
+        help="Journal to read (default: data/journal.sqlite, the one `desk serve` keeps)",
+    )
+    report.add_argument("--run-id", help="Run to report on (default: the most recent run)")
+    report.add_argument(
+        "--week",
+        help="Any date in the week to report, as YYYY-MM-DD (default: the run's latest week)",
+    )
+    report.add_argument("--output", type=Path, help="Markdown output path (stdout if omitted)")
+    report.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    report.add_argument("--log-file", type=Path)
     serve = desk_commands.add_parser(
         "serve", help="Local API server for the terminal (replay, paper venue only)"
     )
@@ -670,6 +687,43 @@ def run_backtest_command(args) -> int:
     return 0
 
 
+def run_report_command(args) -> int:
+    """Run `desk report`: read one week of one run from the journal and write it as Markdown.
+    Returns the exit code (2 for a missing journal, an unknown run, a bad date or a failed write).
+    """
+    journal_path = args.journal or DEFAULT_JOURNAL_FILE
+    if not journal_path.is_file():
+        print(f"Configuration/output error: no journal at {journal_path}", file=sys.stderr)
+        return 2
+    journal = Journal(journal_path)
+    try:
+        run_id = args.run_id or journal.latest_run_id()
+        if run_id is None:
+            raise ValueError("the journal is empty")
+        weekly_report = build_weekly_report(
+            journal, run_id, date.fromisoformat(args.week) if args.week else None
+        )
+        write_output(render_weekly_report(weekly_report), args.output)
+    except (ValueError, OSError) as exc:
+        logger.error("Weekly report failed journal=%s", journal_path, exc_info=True)
+        print(f"Configuration/output error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        journal.close()
+    logger.info(
+        "Weekly report written run_id=%s week_start=%s trades=%d",
+        run_id,
+        weekly_report.week_start,
+        weekly_report.review.trade_count,
+    )
+    print(
+        f"Week {weekly_report.week_start} to {weekly_report.week_end}; run={run_id}; "
+        f"trades closed={weekly_report.review.trade_count}",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def run_desk_command(args) -> int:
     """Dispatch a `desk` subcommand. For `decide` and `scan` it runs the desk, writes the report or
     reports as JSON, and prints one summary line per symbol. Returns the exit code.
@@ -714,6 +768,14 @@ def main() -> int:
     load_env_file()
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "desk" and args.desk_command == "report":
+        # Reads the journal only: no data source, model or scenario to resolve.
+        try:
+            configure_logging(args.log_level or "WARNING", args.log_file)
+        except OSError as exc:
+            print(f"Configuration/output error: cannot write the log file: {exc}", file=sys.stderr)
+            return 2
+        return run_report_command(args)
     resolve_automatic_sources(args)
     if args.source != "fixture" and args.scenario != "trend":
         parser.error("--scenario applies only to fixture data")
