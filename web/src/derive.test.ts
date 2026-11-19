@@ -442,12 +442,15 @@ describe("scout signal tags", () => {
       signalTag({ kind: "NEW_52_WEEK_LOW", level: 85, is_bullish: false, volume_confirmed: true }),
     ).toMatchObject({ label: "52W LOW ✓", tone: "down" });
     expect(
-      signalTag({ kind: "BREAKOUT_ABOVE_PRIOR_DAY_HIGH", level: 109, is_bullish: true, volume_confirmed: false }),
+      signalTag({ kind: "BIG_PERCENT_GAINER", level: 80, is_bullish: true, volume_confirmed: false, change_pct: 37.5 }),
     ).toEqual({
-      label: "BREAKOUT · no vol",
+      label: "BIG GAINER · no vol",
       tone: "dim",
-      description: "breakout at 109.00, not confirmed by volume",
+      description: "big gainer +37.5% from 80.00, not confirmed by volume",
     });
+    expect(
+      signalTag({ kind: "BIG_PERCENT_GAINER", level: 80, is_bullish: true, volume_confirmed: true, change_pct: 37.5 }),
+    ).toMatchObject({ label: "BIG GAINER ✓", tone: "up" });
     expect(
       signalTag({ kind: "BREAKDOWN_BELOW_PRIOR_DAY_LOW", level: 111, is_bullish: false, volume_confirmed: false }),
     ).toMatchObject({ label: "BREAKDOWN · no vol", tone: "dim" });
