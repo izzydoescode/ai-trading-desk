@@ -3,6 +3,12 @@ import { directionGlyph, price, shortDate, signedPercent } from "../format";
 import type { Candle, DeskReport } from "../types";
 
 export const VISIBLE_CANDLES = 80;
+const TREND_TONES = {
+  BULLISH: "up",
+  BEARISH: "down",
+  NEUTRAL: "dim",
+  INSUFFICIENT_DATA: "dim",
+} as const;
 const WIDTH = 900;
 const HEIGHT = 420;
 const LABEL_GUTTER = 118;
@@ -39,6 +45,11 @@ export function ChartPanel({ symbol, candles, levels, report }: ChartPanelProps)
           <span className="tag agent-neo">F2 CHART</span>
           <span className="symbol">{symbol ?? "–"}</span>
           <span className="label">daily bars</span>
+          {report && (
+            <span className={`badge tone-${TREND_TONES[report.chart.trend]}`}>
+              TREND {report.chart.trend === "INSUFFICIENT_DATA" ? "UNKNOWN" : report.chart.trend}
+            </span>
+          )}
           {report?.chart.setup && (
             <span className="badge tone-up" title={report.chart.strategy_notes.join("\n")}>
               {STRATEGY_WORDS[report.chart.setup.strategy]} SETUP

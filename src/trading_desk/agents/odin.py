@@ -143,6 +143,8 @@ def evaluate(
             plan = TradePlan(
                 symbol=symbol,
                 side=TradeSide.LONG,
+                strategy=setup.strategy,
+                target_follows_upper_band=setup.target_follows_upper_band,
                 entry_reference=entry_reference,
                 stop=stop,
                 target=target,

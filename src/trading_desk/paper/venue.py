@@ -114,6 +114,19 @@ class PaperVenue:
             units=plan.units,
         )
 
+    def move_target(self, symbol: str, new_target: float) -> bool:
+        """Move an open position's target to follow the upper Bollinger band.
+
+        Only positions whose plan asked for a band exit are moved. The new level must
+        come from bars BEFORE the one about to be processed, so it is a price the desk
+        could really have had resting in the market. Returns True when a target moved.
+        """
+        position = self.positions.get(symbol)
+        if position is None or not position.target_follows_upper_band or new_target <= 0:
+            return False
+        self.positions[symbol] = position.model_copy(update={"target": new_target})
+        return True
+
     # -- bar processing ----------------------------------------------------
 
     def process_bar(self, symbol: str, candle: Candle) -> list[VenueEvent]:
@@ -166,6 +179,8 @@ class PaperVenue:
             entry_commission=commission,
             entry_slippage_cost=slippage_cost,
             planned_risk_amount=plan.risk_amount,
+            strategy=plan.strategy,
+            target_follows_upper_band=plan.target_follows_upper_band,
         )
         return self._event(
             VenueEventKind.FILL,

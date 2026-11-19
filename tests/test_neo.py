@@ -59,7 +59,7 @@ def test_no_setup_without_a_trigger_and_a_usable_stop(overrides):
     chart_report = analyze_chart(make_indicators(**overrides), blockers=[])
     assert chart_report.setup is None
     # NEO still reports: what it is watching for, and the context levels.
-    assert "close above SMA20 above SMA50" in chart_report.watch_for
+    assert "A bullish trend (SMA20 above SMA50, close above SMA50)" in chart_report.watch_for
     assert chart_report.support == 99.0 and chart_report.resistance == 111.0
 
 
@@ -166,29 +166,92 @@ def test_touching_the_lower_band_in_an_uptrend_is_a_reversion_setup():
     assert chart.setup.strategy.value == "BOLLINGER_REVERSION"
     assert chart.setup.entry_reference == 103.0
     assert chart.setup.stop == pytest.approx(100.5)  # half an ATR under the low that touched
-    assert chart.setup.target == pytest.approx(
-        110.0
-    )  # upper band is nearer than the 20-session high
-    assert "target is the upper band 110.0000" in chart.setup.confirmation
+    # The first target is the upper band as it stands today; it then follows the band.
+    assert chart.setup.target == pytest.approx(110.0)
+    assert chart.setup.target_follows_upper_band is True
+    assert "Exit is the next touch of the upper band, now 110.0000" in chart.setup.confirmation
     assert "bounce failed" in chart.setup.invalidation
     assert "not above SMA20" in notes_for(chart, "TREND_CONTINUATION")
+    assert chart.trend is Classification.BULLISH
 
 
-def test_reversion_targets_resistance_when_it_is_nearer_than_the_upper_band():
-    """Verifies: reversion targets resistance when it is nearer than the upper band."""
+def test_reversion_exit_is_the_upper_band_whatever_the_nearby_resistance():
+    """Verifies: the Bollinger exit is the upper band, not the 20-session high, because the
+    owner's rule is "enter at the lower band, exit at the next touch of the upper band".
+    """
     chart = analyze_chart(make_indicators(**{**PULLBACK, "high20": 108.0}), blockers=[])
-    assert chart.setup.target == pytest.approx(108.0)
-    assert "20-session high 108.0000" in chart.setup.confirmation
-    no_resistance = analyze_chart(make_indicators(**{**PULLBACK, "high20": None}), blockers=[])
-    assert no_resistance.setup.target == pytest.approx(110.0)
+    assert chart.setup.target == pytest.approx(110.0)
+
+
+def test_only_the_bollinger_setup_has_a_target_that_follows_the_band():
+    """Verifies: trend and breakout setups keep a fixed target; only the band reversion's
+    target moves with the upper band.
+    """
+    trend = analyze_chart(make_indicators(), blockers=[])
+    breakout = analyze_chart(
+        make_indicators(prior_high20=108.0, relative_volume20=2.0), blockers=[]
+    )
+    assert trend.setup.target_follows_upper_band is False
+    assert breakout.setup.target_follows_upper_band is False
+
+
+@pytest.mark.parametrize(
+    "overrides,expected_trend",
+    [
+        ({}, "BULLISH"),
+        ({"close": 103.0, "sma20": 106.0}, "BULLISH"),  # pullback under SMA20, still above SMA50
+        ({"close": 90.0, "sma20": 95.0}, "BEARISH"),
+        ({"close": 99.0}, "NEUTRAL"),  # SMA20 above SMA50 but the close has lost SMA50
+        ({"sma20": 98.0}, "NEUTRAL"),  # close above SMA50 but SMA20 below it
+        ({"sma50": None}, "INSUFFICIENT_DATA"),
+    ],
+)
+def test_overall_trend_is_read_from_the_averages(overrides, expected_trend):
+    """Verifies: the trend that decides the side is bullish only when SMA20 and the close are
+    both above SMA50, bearish only when both are below, and neutral when they disagree.
+    """
+    from trading_desk.agents.neo import overall_trend
+
+    assert overall_trend(make_indicators(**overrides)).value == expected_trend
+
+
+def test_a_bearish_trend_takes_no_long_even_when_a_long_pattern_would_trigger():
+    """Verifies: in a bearish trend NEO refuses every long pattern, including a lower-band
+    touch and a volume breakout, and says that only shorts would apply.
+    """
+    bearish = {"close": 90.0, "sma20": 95.0, "sma50": 100.0}
+    band_touch = analyze_chart(
+        make_indicators(
+            **bearish, latest_low=88.0, bollinger_lower20=89.0, bollinger_upper20=101.0
+        ),
+        blockers=[],
+    )
+    volume_breakout = analyze_chart(
+        make_indicators(**bearish, prior_high20=89.0, relative_volume20=3.0), blockers=[]
+    )
+    for chart in (band_touch, volume_breakout):
+        assert chart.trend is Classification.BEARISH
+        assert chart.setup is None
+        assert len(chart.strategy_notes) == 1
+        assert "only short setups apply" in chart.strategy_notes[0]
+        assert "No long is taken against the trend" in chart.strategy_notes[0]
+
+
+def test_without_a_clear_trend_nothing_is_taken():
+    """Verifies: when SMA20 and the close disagree about SMA50 there is no setup of any kind."""
+    chart = analyze_chart(
+        make_indicators(sma20=98.0, prior_high20=108.0, relative_volume20=3.0), blockers=[]
+    )
+    assert chart.trend is Classification.NEUTRAL
+    assert chart.setup is None
+    assert "No clear trend" in chart.strategy_notes[0]
 
 
 @pytest.mark.parametrize(
     "overrides,expected_note",
     [
         ({"latest_low": 102.5}, "low did not reach the lower band"),
-        ({"sma50": 104.0}, "a touch in a downtrend is not bought"),
-        ({"bollinger_upper20": 102.5, "high20": 102.8}, "no room left to the target"),
+        ({"bollinger_upper20": 102.5}, "no room left to the upper band"),
         ({"bollinger_lower20": None}, "bands unavailable"),
         ({"latest_low": None}, "bands unavailable"),
     ],

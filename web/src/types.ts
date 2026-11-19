@@ -38,6 +38,8 @@ export interface EquityPoint {
 export interface TradePlan {
   symbol: string;
   side: string;
+  strategy: TradeSetup["strategy"];
+  target_follows_upper_band: boolean;
   entry_reference: number;
   stop: number;
   target: number;
@@ -54,6 +56,8 @@ export interface TradeSetup {
   target: number;
   confirmation: string;
   invalidation: string;
+  /** True when the exit is the next touch of the upper Bollinger band. */
+  target_follows_upper_band: boolean;
 }
 
 export interface RiskCheck {
@@ -106,6 +110,8 @@ export interface DeskReport {
   chart: {
     thesis: Analysis;
     counter_case: Analysis;
+    /** Overall trend: BULLISH allows longs only, BEARISH shorts only, otherwise nothing. */
+    trend: Classification;
     support: number | null;
     resistance: number | null;
     /** One line per pattern NEO considered, with why it did or did not trigger. */

@@ -299,6 +299,23 @@ describe("chart", () => {
     expect(screen.queryByText(/SETUP$/)).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["BULLISH", "TREND BULLISH", "tone-up"],
+    ["BEARISH", "TREND BEARISH", "tone-down"],
+    ["NEUTRAL", "TREND NEUTRAL", "tone-dim"],
+    ["INSUFFICIENT_DATA", "TREND UNKNOWN", "tone-dim"],
+  ] as const)("shows a %s trend in words and colour", (trend, label, toneClass) => {
+    render(
+      <ChartPanel
+        symbol="AAPL"
+        candles={cloneSnapshot().candles_by_symbol.AAPL!}
+        levels={[]}
+        report={reportWith((report) => (report.chart.trend = trend))}
+      />,
+    );
+    expect(screen.getByText(label)).toHaveClass(toneClass);
+  });
+
   it("survives a single flat bar", () => {
     const flat = { timestamp: "2025-01-02T21:00:00Z", open: 10, high: 10, low: 10, close: 10, volume: 1 };
     render(<ChartPanel symbol="AAPL" candles={[flat]} levels={[]} report={undefined} />);
