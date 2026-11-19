@@ -89,6 +89,7 @@ def build_desk_graph(
     llm: ReasoningProvider | None = None,
     news_feed: NewsFeed | None = None,
     sentiment_feed: SentimentFeed | None = None,
+    news_tone_feed: SentimentFeed | None = None,
 ):
     def trace(state: DeskState, agent: str, start: float, error: str | None = None) -> list[Trace]:
         return record_trace(state["run_id"], agent, start, error, RULES_PROVIDER_NAME)
@@ -143,7 +144,19 @@ def build_desk_graph(
                 # Exception text can contain credential-bearing URLs; record only the class.
                 # SNOWDEN then abstains: a failed feed is never read as "no news".
                 error = f"News retrieval failed: {type(exc).__name__}"
-        news_report = snowden.report(news_items, state["as_of"])
+        headline_tone = None
+        if news_items and news_tone_feed is not None:
+            try:
+                headline_tone = await asyncio.wait_for(
+                    news_tone_feed.fetch(
+                        state["symbol"], state["as_of"] - snowden.NEWS_LOOKBACK, state["as_of"]
+                    ),
+                    timeout=SENTIMENT_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                # Without a tone reading SNOWDEN falls back to listing the items (NEUTRAL).
+                error = f"News tone failed: {type(exc).__name__}"
+        news_report = snowden.report(news_items, state["as_of"], headline_tone)
         return {
             "news": news_report,
             "trace": record_trace(state["run_id"], "snowden", start, error, provider_name),
@@ -273,13 +286,21 @@ class Desk:
         llm: ReasoningProvider | None = None,
         news_feed: NewsFeed | None = None,
         sentiment_feed: SentimentFeed | None = None,
+        news_tone_feed: SentimentFeed | None = None,
     ):
         self.market_profile = market_profile
         self.limits = limits
         self.setup_rules = setup_rules
         self.llm = llm
         self.graph = build_desk_graph(
-            data_provider, market_profile, limits, setup_rules, llm, news_feed, sentiment_feed
+            data_provider,
+            market_profile,
+            limits,
+            setup_rules,
+            llm,
+            news_feed,
+            sentiment_feed,
+            news_tone_feed,
         )
 
     async def decide(
@@ -362,9 +383,19 @@ async def run_desk_decision(
     llm: ReasoningProvider | None = None,
     news_feed: NewsFeed | None = None,
     sentiment_feed: SentimentFeed | None = None,
+    news_tone_feed: SentimentFeed | None = None,
 ) -> DeskReport:
     """One-off decision: builds a Desk and asks it once."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed, sentiment_feed)
+    desk = Desk(
+        data_provider,
+        market_profile,
+        limits,
+        setup_rules,
+        llm,
+        news_feed,
+        sentiment_feed,
+        news_tone_feed,
+    )
     return await desk.decide(
         symbol, account, as_of, news_items=news_items, sentiment_reading=sentiment_reading
     )
@@ -382,7 +413,17 @@ async def scan_watchlist(
     llm: ReasoningProvider | None = None,
     news_feed: NewsFeed | None = None,
     sentiment_feed: SentimentFeed | None = None,
+    news_tone_feed: SentimentFeed | None = None,
 ) -> list[DeskReport]:
     """One-off ranked scan of a watchlist."""
-    desk = Desk(data_provider, market_profile, limits, setup_rules, llm, news_feed, sentiment_feed)
+    desk = Desk(
+        data_provider,
+        market_profile,
+        limits,
+        setup_rules,
+        llm,
+        news_feed,
+        sentiment_feed,
+        news_tone_feed,
+    )
     return await desk.scan(symbols, account, as_of)

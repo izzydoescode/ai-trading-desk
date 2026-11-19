@@ -4,6 +4,12 @@ import type { DeskEvent, DeskReport } from "../types";
 
 export const JOURNAL_ROWS = 12;
 export const NEWS_ROWS = 4;
+const NEWS_TONES = {
+  BULLISH: "up",
+  BEARISH: "down",
+  NEUTRAL: "dim",
+  INSUFFICIENT_DATA: "dim",
+} as const;
 const AGENT_NAMES = ["HAWKEYE", "NEO", "SNOWDEN", "FAMA", "ODIN", "PICARD"];
 
 interface WatchlistProps {
@@ -93,6 +99,9 @@ export function NewsMood({ report, newsSource }: NewsMoodProps) {
       <div className="title">
         <span className="tag agent-snowden">F3 NEWS</span>
         <span className="label">SNOWDEN · dated sources only{newsSource ? ` · ${newsSource}` : ""}</span>
+        {news && !news.abstain && (
+          <span className={`badge tone-${NEWS_TONES[news.verdict]}`}>NEWS {news.verdict}</span>
+        )}
       </div>
       {items.slice(0, NEWS_ROWS).map(({ item, tag, tone }) => (
         <div key={`${item.published_at}${item.headline}`} className={`news-item tone-border-${tone}`}>

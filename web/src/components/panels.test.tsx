@@ -136,6 +136,7 @@ describe("news list length", () => {
           report.news = {
             ...report.news,
             abstain: false,
+            verdict: "NEUTRAL",
             summary: "7 dated item(s).",
             verified_facts: Array.from({ length: 7 }, (_, index) => item(index)),
           };
@@ -147,6 +148,28 @@ describe("news list length", () => {
     expect(screen.queryByText("Headline 4")).not.toBeInTheDocument();
     expect(screen.getByText(/\+3 more\. 7 dated item\(s\)\./)).toBeInTheDocument();
     expect(screen.getByText(/dated sources only · finnhub-company-news/)).toBeInTheDocument();
+    expect(screen.getByText("NEWS NEUTRAL")).toHaveClass("tone-dim");
+  });
+});
+
+describe("news verdict", () => {
+  it.each([
+    ["BULLISH", "tone-up"],
+    ["BEARISH", "tone-down"],
+  ] as const)("shows %s news in words and colour", (verdict, toneClass) => {
+    render(
+      <NewsMood
+        report={reportWith((report) => {
+          report.news = { ...report.news, abstain: false, verdict, summary: "Tone read." };
+        })}
+      />,
+    );
+    expect(screen.getByText(`NEWS ${verdict}`)).toHaveClass(toneClass);
+  });
+
+  it("shows no verdict badge when SNOWDEN abstains", () => {
+    render(<NewsMood report={reportWith(() => undefined)} />);
+    expect(screen.queryByText(/^NEWS /)).not.toBeInTheDocument();
   });
 });
 
