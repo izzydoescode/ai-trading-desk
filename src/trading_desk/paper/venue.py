@@ -5,7 +5,9 @@ Fill model, chosen to be conservative rather than flattering:
 * An order submitted after a bar closes fills at the NEXT bar's open, plus slippage.
 * If that open is already at or below the stop, or at or above the target, the idea
   is void and the order is cancelled instead of filled.
-* A stop is checked before a target, so a bar that touches both counts as a loss.
+* A stop is checked before a target, so a bar that touches both counts as a loss,
+  unless minute bars for that session show the target was reached first. When they
+  cannot settle it (none supplied, or both levels inside one minute) it stays a loss.
 * A gap through a level exits at the open, not at the level.
 * Commission and slippage from the market profile are charged on entry and exit.
 
@@ -13,6 +15,7 @@ Paper results still overstate reality: there is no market impact, queue position
 or halted session here.
 """
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol
 
@@ -23,6 +26,7 @@ from trading_desk.models import (
     ClosedTrade,
     ExitReason,
     Position,
+    SameBarResolution,
     TradePlan,
     TradeSide,
     VenueEvent,
@@ -32,6 +36,29 @@ from trading_desk.models import (
 MONEY_DECIMAL_PLACES = 2
 
 
+def first_level_touched(
+    side: TradeSide, stop: float, target: float, intraday_candles: Sequence[Candle]
+) -> ExitReason | None:
+    """Walk a session's intraday bars in order and say which level price reached first.
+
+    Returns STOP or TARGET, or None when the bars cannot say: neither level is touched
+    in them, or the first bar to touch one touches both.
+    """
+    is_long = side is TradeSide.LONG
+    for intraday_candle in sorted(intraday_candles, key=lambda candle: candle.timestamp):
+        touches_stop = intraday_candle.low <= stop if is_long else intraday_candle.high >= stop
+        touches_target = (
+            intraday_candle.high >= target if is_long else intraday_candle.low <= target
+        )
+        if touches_stop and touches_target:
+            return None
+        if touches_stop:
+            return ExitReason.STOP
+        if touches_target:
+            return ExitReason.TARGET
+    return None
+
+
 class ExecutionVenue(Protocol):
     """Where approved plans are sent. Swapping this is the only change between modes."""
 
@@ -39,7 +66,9 @@ class ExecutionVenue(Protocol):
 
     def submit(self, plan: TradePlan, submitted_at: datetime) -> VenueEvent: ...
 
-    def process_bar(self, symbol: str, candle: Candle) -> list[VenueEvent]: ...
+    def process_bar(
+        self, symbol: str, candle: Candle, intraday_candles: Sequence[Candle] | None = None
+    ) -> list[VenueEvent]: ...
 
     def account_snapshot(self) -> AccountSnapshot: ...
 
@@ -142,8 +171,48 @@ class PaperVenue:
 
     # -- bar processing ----------------------------------------------------
 
-    def process_bar(self, symbol: str, candle: Candle) -> list[VenueEvent]:
-        """Advance one symbol by one bar: fill a queued order, then check exits."""
+    def needs_intraday_bars(self, symbol: str, candle: Candle) -> bool:
+        """Whether this bar touches both the stop and the target of the symbol's open position
+        or queued order, so that only intraday bars can say which came first.
+
+        A bar that opens through the stop of a position already held is not ambiguous: the
+        gap exits at the open. Neither is a position already marked to be sold at the open.
+        """
+        position, pending_plan = self.positions.get(symbol), self.pending_orders.get(symbol)
+        if position is not None:
+            if position.exit_at_next_open:
+                return False
+            side, stop, target, held_before_this_bar = (
+                position.side,
+                position.stop,
+                position.target,
+                True,
+            )
+        elif pending_plan is not None:
+            side, stop, target, held_before_this_bar = (
+                pending_plan.side,
+                pending_plan.stop,
+                pending_plan.target,
+                False,
+            )
+        else:
+            return False
+        if side is TradeSide.LONG:
+            opens_through_stop = candle.open <= stop
+            touches_both = candle.low <= stop and candle.high >= target
+        else:
+            opens_through_stop = candle.open >= stop
+            touches_both = candle.high >= stop and candle.low <= target
+        return touches_both and not (held_before_this_bar and opens_through_stop)
+
+    def process_bar(
+        self, symbol: str, candle: Candle, intraday_candles: Sequence[Candle] | None = None
+    ) -> list[VenueEvent]:
+        """Advance one symbol by one bar: fill a queued order, then check exits.
+
+        `intraday_candles` are that session's minute bars, supplied when the bar touches
+        both the stop and the target; they decide which was reached first.
+        """
         self._roll_trading_day(candle.timestamp.date())
         events: list[VenueEvent] = []
         position_opened_this_bar = False
@@ -154,7 +223,9 @@ class PaperVenue:
             position_opened_this_bar = fill_event.kind is VenueEventKind.FILL
         position = self.positions.get(symbol)
         if position is not None:
-            exit_event = self._check_exit(position, candle, position_opened_this_bar)
+            exit_event = self._check_exit(
+                position, candle, position_opened_this_bar, intraday_candles
+            )
             if exit_event is not None:
                 events.append(exit_event)
             else:
@@ -255,11 +326,17 @@ class PaperVenue:
         return best_move / risk_per_unit < position.stalled_trade_progress_r
 
     def _check_exit(
-        self, position: Position, candle: Candle, position_opened_this_bar: bool
+        self,
+        position: Position,
+        candle: Candle,
+        position_opened_this_bar: bool,
+        intraday_candles: Sequence[Candle] | None = None,
     ) -> VenueEvent | None:
         # The open belongs to the entry on the fill bar, so a gap exit cannot apply there.
         """Decide whether this bar closes the position and at what price: a gap through the stop or
-        target exits at the open, otherwise the stop is checked before the target.
+        target exits at the open, otherwise the stop is checked before the target. When the bar
+        touches both, the session's intraday bars decide which came first if they can; if they
+        cannot, the stop is assumed to have come first.
         """
         if position.exit_at_next_open:
             # Decided at the previous close: sold at this open, wherever it is.
@@ -277,6 +354,27 @@ class PaperVenue:
             touches_target = candle.low <= position.target
         if not position_opened_this_bar and opens_through_stop:
             return self._close(position, candle.open, candle.timestamp, ExitReason.STOP)
+        if touches_stop and touches_target:
+            first_touch = first_level_touched(
+                position.side, position.stop, position.target, intraday_candles or ()
+            )
+            if first_touch is ExitReason.TARGET:
+                return self._close(
+                    position,
+                    position.target,
+                    candle.timestamp,
+                    ExitReason.TARGET,
+                    SameBarResolution.INTRADAY,
+                )
+            return self._close(
+                position,
+                position.stop,
+                candle.timestamp,
+                ExitReason.STOP,
+                SameBarResolution.INTRADAY
+                if first_touch is ExitReason.STOP
+                else SameBarResolution.ASSUMED_STOP_FIRST,
+            )
         if touches_stop:
             return self._close(position, position.stop, candle.timestamp, ExitReason.STOP)
         if not position_opened_this_bar and opens_through_target:
@@ -286,7 +384,12 @@ class PaperVenue:
         return None
 
     def _close(
-        self, position: Position, reference_price: float, closed_at: datetime, reason: ExitReason
+        self,
+        position: Position,
+        reference_price: float,
+        closed_at: datetime,
+        reason: ExitReason,
+        same_bar_resolution: SameBarResolution | None = None,
     ) -> VenueEvent:
         """Close a position at the given price: apply exit slippage and commission, return the cash,
         record the trade with its profit or loss in money and in R, and add any loss to today's
@@ -356,6 +459,7 @@ class PaperVenue:
                 total_cost=round(total_cost, MONEY_DECIMAL_PLACES),
                 profit_and_loss=profit_and_loss,
                 r_multiple=round(profit_and_loss / position.planned_risk_amount, 4),
+                same_bar_resolution=same_bar_resolution,
             )
         )
         if profit_and_loss < 0:

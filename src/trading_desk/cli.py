@@ -40,7 +40,12 @@ from trading_desk.paper.journal import Journal
 from trading_desk.review import build_weekly_report, render_weekly_report
 from trading_desk.server import DeskSession, ReplaySettings, create_app
 from trading_desk.settings import load_env_file
-from trading_desk.tools.alpaca import AlpacaBarsProvider, AlpacaClient, AlpacaNewsFeed
+from trading_desk.tools.alpaca import (
+    AlpacaBarsProvider,
+    AlpacaClient,
+    AlpacaIntradayBars,
+    AlpacaNewsFeed,
+)
 from trading_desk.tools.historical_data import (
     CachingProvider,
     CsvDirectoryProvider,
@@ -158,6 +163,9 @@ def resolve_automatic_sources(args) -> None:
             args.news = "alpaca"
         else:
             args.news = "finnhub" if os.environ.get("FINNHUB_API_KEY") else "none"
+    if getattr(args, "intraday", None) == "auto":
+        # Minute bars are only comparable with daily bars from the same vendor.
+        args.intraday = "alpaca" if args.source == "alpaca" else "none"
 
 
 def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
@@ -176,6 +184,18 @@ def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
             raise ValueError("Pass --csv-dir with a folder of <SYMBOL>.csv files for csv data")
         return CsvDirectoryProvider(args.csv_dir)
     return FixtureProvider(args.scenario)
+
+
+def build_intraday_provider(args, client: httpx.AsyncClient) -> AlpacaIntradayBars | None:
+    """Minute bars for settling a bar that touches both stop and target, or None to keep the
+    worst-case assumption. Only offered beside Alpaca's own daily bars, so the two price
+    series are adjusted the same way.
+    """
+    if getattr(args, "intraday", "none") == "none":
+        return None
+    if args.source != "alpaca":
+        raise ValueError("--intraday alpaca needs --source alpaca, so both use the same prices")
+    return AlpacaIntradayBars(build_alpaca_client(client), args.cache_dir)
 
 
 def build_setup_rules(args) -> SetupRules:
@@ -360,6 +380,7 @@ async def execute_backtest(args) -> BacktestReport:
                 starting_cash=args.equity,
                 setup_rules=build_setup_rules(args),
                 journal=journal,
+                intraday_provider=build_intraday_provider(args, client),
             )
     finally:
         if journal is not None:
@@ -418,6 +439,7 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
             news_feed=news_feed,
             sentiment_feed=build_sentiment_feed(args, news_feed, llm),
             news_tone_feed=build_news_tone_feed(args, news_feed, llm),
+            intraday_provider=build_intraday_provider(args, client),
         )
         server = uvicorn.Server(
             uvicorn.Config(
@@ -625,6 +647,14 @@ def build_parser() -> argparse.ArgumentParser:
         )
         model_command.add_argument(
             "--model-cache-dir", type=Path, default=DEFAULT_MODEL_CACHE_DIRECTORY
+        )
+    for venue_command in (backtest, serve):
+        venue_command.add_argument(
+            "--intraday",
+            choices=["auto", "alpaca", "none"],
+            default="auto",
+            help="Minute bars that settle a day touching both the stop and the target: alpaca "
+            "(the default with --source alpaca) or none, which assumes the stop came first",
         )
     for news_command in (decide, scan, serve):
         news_command.add_argument(

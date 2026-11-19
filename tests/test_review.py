@@ -132,6 +132,39 @@ def test_the_review_breaks_results_down_by_strategy_symbol_side_exit_and_holding
     assert holding_time_label(make_trade(1.0, bars_held=400)) == "11+ sessions"
 
 
+def test_the_review_counts_how_same_day_stop_and_target_exits_were_settled():
+    """Verifies: the review says how many trades were settled by minute bars and how many
+    still rest on the stop-first assumption, and the weekly page prints both.
+    """
+    trades = [
+        make_trade(1500.0, same_bar_resolution="INTRADAY"),
+        make_trade(-500.0, same_bar_resolution="INTRADAY"),
+        make_trade(-500.0, same_bar_resolution="ASSUMED_STOP_FIRST"),
+        make_trade(250.0),
+    ]
+    trade_review = review_trades(trades)
+    assert trade_review.settled_intraday_count == 2
+    assert trade_review.assumed_stop_first_count == 1
+    journal = Journal()
+    journal.record_event(
+        DeskEvent(
+            run_id="run-1",
+            sequence=0,
+            timestamp=MONDAY,
+            symbol="AAPL",
+            agent="PICARD",
+            kind="TRADE",
+            reason="approved",
+            detail={},
+        )
+    )
+    for trade in trades:
+        journal.record_trade("run-1", trade)
+    page = render_weekly_report(build_weekly_report(journal, "run-1"))
+    assert "| Stop and target touched on one day: settled by minute bars | 2 |" in page
+    assert "| Stop and target touched on one day: stop assumed first | 1 |" in page
+
+
 def test_a_review_of_no_trades_shows_nothing_rather_than_zeroes():
     """Verifies: with no trades, every average is missing (None), not zero, and a break-even
     trade counts as a loss.

@@ -392,3 +392,101 @@ async def test_the_backup_feed_is_used_only_when_the_primary_fails():
     )
     with pytest.raises(ConnectionError):
         await both_down.fetch("AAPL", *window)
+
+
+def make_minute_bar(start_time, low, high):
+    """Test helper (not a test): builds one Alpaca minute bar."""
+    return {"t": start_time, "o": low, "h": high, "l": low, "c": high, "v": 500, "n": 5, "vw": low}
+
+
+def make_intraday_bars(handler, cache_directory=None):
+    """Test helper (not a test): builds the minute-bar reader over a mock transport."""
+    from trading_desk.tools.alpaca import AlpacaIntradayBars
+
+    async def no_wait(seconds):
+        return None
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    alpaca_client = AlpacaClient(KEY_ID, SECRET_KEY, http_client, sleep=no_wait)
+    return AlpacaIntradayBars(alpaca_client, cache_directory)
+
+
+async def test_minute_bars_cover_one_regular_session_and_are_kept_on_disk(tmp_path):
+    """Verifies: the request asks for one-minute adjusted IEX bars from 09:30 to 16:00 New York
+    time on the daily bar's date, pages are followed, bars come back oldest first, and a
+    second request for the same session is served from disk without calling Alpaca.
+    """
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.params.get("page_token") == "page-2":
+            return httpx.Response(
+                200, json={"bars": {"AAPL": [make_minute_bar("2026-11-16T14:30:00Z", 100, 101)]}}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "bars": {
+                    "AAPL": [
+                        make_minute_bar("2026-11-16T14:32:00Z", 102, 103),
+                        make_minute_bar("2026-11-16T14:31:00Z", 101, 102),
+                        # The minute starting at the close is after-hours and is left out.
+                        make_minute_bar("2026-11-16T21:00:00Z", 500, 501),
+                        {"t": "broken"},
+                    ]
+                },
+                "next_page_token": "page-2",
+            },
+        )
+
+    daily_bar_time = datetime(2026, 11, 16, 21, tzinfo=UTC)
+    intraday_bars = make_intraday_bars(handler, tmp_path)
+    candles = await intraday_bars.fetch_session("AAPL", daily_bar_time)
+    assert [candle.timestamp.minute for candle in candles] == [30, 31, 32]
+    assert [candle.high for candle in candles] == [101.0, 102.0, 103.0]
+    first_request = requests[0]
+    assert first_request.headers["APCA-API-KEY-ID"] == KEY_ID
+    assert dict(first_request.url.params) == {
+        "symbols": "AAPL",
+        "timeframe": "1Min",
+        "start": "2026-11-16T14:30:00Z",
+        "end": "2026-11-16T21:00:00Z",
+        "limit": "10000",
+        "adjustment": "all",
+        "feed": "iex",
+    }
+    assert len(requests) == 2
+    assert (tmp_path / "alpaca-1min-iex" / "AAPL" / "2026-11-16.json").is_file()
+
+    again = await make_intraday_bars(handler, tmp_path).fetch_session("AAPL", daily_bar_time)
+    assert again == candles
+    assert len(requests) == 2
+
+
+async def test_minute_bars_without_a_cache_are_fetched_each_time_and_failures_raise():
+    """Verifies: with no cache folder every call goes to Alpaca, a summer session uses the
+    summer clock (13:30 UTC open), an empty answer is an empty list, a rejected request
+    raises for the caller to handle, and a payload that is not a list is refused.
+    """
+    from trading_desk.tools.alpaca import parse_intraday_bars
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"bars": {}})
+
+    intraday_bars = make_intraday_bars(handler)
+    summer_close = datetime(2026, 7, 15, 20, tzinfo=UTC)
+    assert await intraday_bars.fetch_session("AAPL", summer_close) == []
+    assert await intraday_bars.fetch_session("AAPL", summer_close) == []
+    assert len(requests) == 2
+    assert requests[0].url.params["start"] == "2026-07-15T13:30:00Z"
+    assert requests[0].url.params["end"] == "2026-07-15T20:00:00Z"
+
+    rejected = make_intraday_bars(lambda request: httpx.Response(403, json={"message": "no"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        await rejected.fetch_session("AAPL", summer_close)
+    with pytest.raises(ValueError, match="unexpected bars payload"):
+        parse_intraday_bars({"message": "forbidden"})

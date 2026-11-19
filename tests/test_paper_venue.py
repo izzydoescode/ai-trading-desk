@@ -570,3 +570,154 @@ def test_a_stalled_short_is_bought_back_early():
     open_short(working, stalled_trade_sessions=2)
     working.process_bar("AAPL", make_candle(2, open_price=100, high=100.5, low=97, close=98))
     assert working.positions["AAPL"].exit_at_next_open is False  # it is ahead: left alone
+
+
+def make_minute_bars(*ranges):
+    """Test helper (not a test): builds consecutive one-minute bars from (low, high) pairs."""
+    return [
+        Candle(
+            timestamp=DAY_ONE + timedelta(days=2, minutes=minute),
+            open=(low + high) / 2,
+            high=high,
+            low=low,
+            close=(low + high) / 2,
+            volume=100,
+        )
+        for minute, (low, high) in enumerate(ranges)
+    ]
+
+
+def open_long_then_touch_both(intraday_candles=None):
+    """Test helper (not a test): fills the standard long (stop 95, target 110) and processes a
+    day whose range touches both levels, with the given minute bars. Returns the venue and
+    that day's events.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
+    wide_day = make_candle(2, 101.0, 111.0, 94.0, 100.0)
+    assert paper_venue.needs_intraday_bars("AAPL", wide_day) is True
+    return paper_venue, paper_venue.process_bar("AAPL", wide_day, intraday_candles)
+
+
+def test_minute_bars_showing_the_target_first_turn_the_assumed_loss_into_the_real_win():
+    """Verifies: when the session's minute bars reach the target before the stop, the trade
+    closes at its target for a profit and is marked as settled intraday.
+    """
+    target_first = make_minute_bars((100.5, 102.0), (103.0, 110.5), (94.0, 99.0))
+    paper_venue, events = open_long_then_touch_both(target_first)
+    (closed_trade,) = paper_venue.closed_trades
+    assert events[0].reason == "TARGET"
+    assert closed_trade.exit_reason is ExitReason.TARGET
+    assert closed_trade.exit_price == 110.0
+    assert closed_trade.profit_and_loss == pytest.approx(100.0)
+    assert closed_trade.same_bar_resolution.value == "INTRADAY"
+
+
+def test_minute_bars_showing_the_stop_first_confirm_the_loss():
+    """Verifies: when the minute bars reach the stop first, the trade is a loss at the stop,
+    now marked as settled intraday rather than assumed.
+    """
+    stop_first = make_minute_bars((99.0, 101.0), (94.5, 98.0), (104.0, 111.0))
+    paper_venue, _ = open_long_then_touch_both(stop_first)
+    (closed_trade,) = paper_venue.closed_trades
+    assert closed_trade.exit_reason is ExitReason.STOP
+    assert closed_trade.profit_and_loss == pytest.approx(-50.0)
+    assert closed_trade.same_bar_resolution.value == "INTRADAY"
+
+
+@pytest.mark.parametrize(
+    "unhelpful_minute_bars",
+    [
+        None,
+        [],
+        make_minute_bars((99.0, 101.0), (98.0, 100.0)),
+        make_minute_bars((99.0, 101.0), (94.0, 111.0), (104.0, 111.0)),
+    ],
+    ids=["none supplied", "empty session", "neither level touched", "both in one minute"],
+)
+def test_when_minute_bars_cannot_decide_the_stop_is_still_assumed_first(unhelpful_minute_bars):
+    """Verifies: with no minute bars, bars that never touch a level, or one minute that
+    touches both, the venue keeps the worse outcome and says it was an assumption.
+    """
+    paper_venue, _ = open_long_then_touch_both(unhelpful_minute_bars)
+    (closed_trade,) = paper_venue.closed_trades
+    assert closed_trade.exit_reason is ExitReason.STOP
+    assert closed_trade.exit_price == 95.0
+    assert closed_trade.same_bar_resolution.value == "ASSUMED_STOP_FIRST"
+
+
+def test_minute_bars_are_read_in_time_order_whatever_order_they_arrive_in():
+    """Verifies: minute bars supplied newest first give the same answer as oldest first."""
+    target_first = make_minute_bars((103.0, 110.5), (94.0, 99.0))
+    paper_venue, _ = open_long_then_touch_both(list(reversed(target_first)))
+    assert paper_venue.closed_trades[0].exit_reason is ExitReason.TARGET
+
+
+def test_a_short_touching_both_levels_is_settled_the_mirrored_way():
+    """Verifies: for a short (stop above, target below) the minute bars decide the same way:
+    a fall to the target first is a win, a rise to the stop first is a loss.
+    """
+    outcomes = {}
+    for label, minute_bars in {
+        "target first": make_minute_bars((89.5, 96.0), (100.0, 106.0)),
+        "stop first": make_minute_bars((100.0, 105.5), (89.0, 96.0)),
+    }.items():
+        paper_venue = make_paper_venue()
+        paper_venue.submit(make_short_plan(), DAY_ONE)
+        paper_venue.process_bar("AAPL", make_candle(1, 100.0, 101.0, 98.0, 99.0))
+        wide_day = make_candle(2, 99.0, 106.0, 89.0, 100.0)
+        assert paper_venue.needs_intraday_bars("AAPL", wide_day) is True
+        paper_venue.process_bar("AAPL", wide_day, minute_bars)
+        outcomes[label] = paper_venue.closed_trades[0]
+    assert outcomes["target first"].exit_reason is ExitReason.TARGET
+    assert outcomes["target first"].profit_and_loss == pytest.approx(100.0)
+    assert outcomes["stop first"].exit_reason is ExitReason.STOP
+    assert outcomes["stop first"].profit_and_loss == pytest.approx(-50.0)
+    assert {trade.same_bar_resolution.value for trade in outcomes.values()} == {"INTRADAY"}
+
+
+def test_minute_bars_are_only_needed_for_a_bar_that_is_truly_ambiguous():
+    """Verifies: no minute bars are asked for when there is no position, when only one level
+    is touched, when a held position gaps through its stop, or when it is already marked to
+    be sold at the open; a queued order whose fill day touches both does need them. A trade
+    closed on an unambiguous bar carries no same-bar mark.
+    """
+    paper_venue = make_paper_venue()
+    wide_day = make_candle(2, 101.0, 111.0, 94.0, 100.0)
+    assert paper_venue.needs_intraday_bars("AAPL", wide_day) is False
+
+    paper_venue.submit(make_trade_plan(), DAY_ONE)
+    assert paper_venue.needs_intraday_bars("AAPL", make_candle(1, 100.0, 111.0, 94.0, 100.0))
+    paper_venue.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
+    assert paper_venue.needs_intraday_bars("AAPL", make_candle(2, 101.0, 111.0, 96.0, 105.0)) is (
+        False
+    )
+    assert paper_venue.needs_intraday_bars("AAPL", make_candle(2, 94.0, 111.0, 93.0, 100.0)) is (
+        False
+    )
+    paper_venue.positions["AAPL"] = paper_venue.positions["AAPL"].model_copy(
+        update={"exit_at_next_open": True}
+    )
+    assert paper_venue.needs_intraday_bars("AAPL", wide_day) is False
+
+    target_only = make_paper_venue()
+    target_only.submit(make_trade_plan(), DAY_ONE)
+    target_only.process_bar("AAPL", make_candle(1, 100.0, 102.0, 99.0, 101.0))
+    target_only.process_bar("AAPL", make_candle(2, 101.0, 111.0, 100.0, 110.0))
+    assert target_only.closed_trades[0].same_bar_resolution is None
+
+
+def test_a_trade_filled_and_closed_on_the_same_wide_day_can_be_settled_too():
+    """Verifies: when the fill day itself touches both levels, minute bars after the open
+    decide the exit just as on any later day.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(), DAY_ONE)
+    fill_day = make_candle(2, 100.0, 111.0, 94.0, 100.0)
+    events = paper_venue.process_bar(
+        "AAPL", fill_day, make_minute_bars((99.5, 101.0), (102.0, 110.2), (94.0, 99.0))
+    )
+    assert [event.kind for event in events] == [VenueEventKind.FILL, VenueEventKind.EXIT]
+    assert paper_venue.closed_trades[0].exit_reason is ExitReason.TARGET
+    assert paper_venue.closed_trades[0].same_bar_resolution.value == "INTRADAY"

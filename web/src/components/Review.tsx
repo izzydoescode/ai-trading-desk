@@ -3,6 +3,10 @@ import { money, percent, plainReason, price, shortDate, signedMoney } from "../f
 import type { DeskReport, GroupResult, ReviewedTrade, TradeReview } from "../types";
 import type { OpenedDecision } from "../useReview";
 
+const SAME_BAR_WORDS = {
+  INTRADAY: "settled by minute bars",
+  ASSUMED_STOP_FIRST: "stop assumed first",
+} as const;
 const PLOT_WIDTH = 360;
 const PLOT_HEIGHT = 220;
 const PLOT_MARGIN = 30;
@@ -237,7 +241,18 @@ function TradesTable({ trades, opened, onOpenDecision }: TradesTableProps) {
             <td>{shortDate(trade.opened_at)}</td>
             <td>{shortDate(trade.closed_at)}</td>
             <td className="number">{trade.bars_held}</td>
-            <td>{plainReason(trade.exit_reason)}</td>
+            <td>
+              {plainReason(trade.exit_reason)}
+              {trade.same_bar_resolution && (
+                <span
+                  className="label"
+                  title="This day touched both the stop and the target. Minute bars decide which came first; without them the stop is assumed."
+                >
+                  {" "}
+                  · {SAME_BAR_WORDS[trade.same_bar_resolution]}
+                </span>
+              )}
+            </td>
             <td className={`number strong tone-${trade.profit_and_loss > 0 ? "up" : "down"}`}>
               {trade.profit_and_loss > 0 ? "▲" : "▼"} {signedMoney(trade.profit_and_loss)}
             </td>

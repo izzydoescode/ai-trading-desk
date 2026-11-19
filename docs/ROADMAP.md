@@ -41,9 +41,13 @@ Live polling is built (see "Desk server" in `CLAUDE.md`): GO LIVE in the termina
 - A live run does not survive a server restart: the paper account starts again. Restoring it from the journal is not built.
 - Cost: $0 on Alpaca's free market-data plan (IEX feed). The paid SIP feed has a monthly fee that has not been checked.
 
-### Intraday resolution of ambiguous bars
+### Intraday resolution: built, rarely needed so far
 
-When one daily bar touches both the stop and the target, the venue assumes the stop came first because a daily bar cannot say which was hit first. With Alpaca minute bars the venue can look inside that one day and use the real order, falling back to the worst case when minute data is missing.
+When one daily bar touches both the stop and the target, the venue now reads that session's minute bars from Alpaca and uses the real order, falling back to "stop first" when they cannot say (see `CLAUDE.md`).
+
+- In the in-sample window on Alpaca data (3 Feb 2025 to 29 May 2026, ten symbols, 14 trades, +7.05%) no trade closed on such a day, so the result is identical with and without it. With a stop 2 ATR away and a target 6 ATR away, one day has to span about 8 ATR for it to matter.
+- It matters more for tighter setups (the Bollinger reversion's band target) and in live running. The review page and weekly report count how many exits were settled this way and how many still rest on the assumption.
+- Cost: $0 on Alpaca's free plan. One request per ambiguous session, cached on disk afterwards.
 
 ## Later
 

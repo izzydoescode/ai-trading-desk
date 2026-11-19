@@ -18,6 +18,7 @@ Two details matter for correctness:
 """
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -36,6 +37,7 @@ BARS_PATH = "/v2/stocks/bars"
 SNAPSHOTS_PATH = "/v2/stocks/snapshots"
 NEWS_PATH = "/v1beta1/news"
 NEW_YORK = ZoneInfo("America/New_York")
+REGULAR_SESSION_OPEN = time(9, 30)
 REGULAR_SESSION_CLOSE = time(16, 0)
 # Two years and a margin: enough for a 52-week high plus the indicators' warm-up.
 DEFAULT_HISTORY_DAYS = 800
@@ -205,6 +207,101 @@ class AlpacaBarsProvider:
             if isinstance(price, int | float) and price > 0:
                 latest_prices[symbol] = float(price)
         return latest_prices
+
+
+def parse_intraday_bars(bars: object) -> list[Candle]:
+    """Turn Alpaca's minute bars into candles stamped with each minute's own start time.
+
+    Unlike daily bars these are only ever compared with each other, in order, so they keep
+    Alpaca's timestamps. An unreadable bar is skipped.
+    """
+    if not isinstance(bars, list):
+        raise ValueError("unexpected bars payload")
+    candles = []
+    for bar in bars:
+        try:
+            candles.append(
+                Candle(
+                    timestamp=datetime.fromisoformat(bar["t"].replace("Z", "+00:00")),
+                    open=round(bar["o"], PRICE_DECIMAL_PLACES),
+                    high=round(bar["h"], PRICE_DECIMAL_PLACES),
+                    low=round(bar["l"], PRICE_DECIMAL_PLACES),
+                    close=round(bar["c"], PRICE_DECIMAL_PLACES),
+                    volume=bar.get("v") or 0,
+                )
+            )
+        except (KeyError, TypeError, ValueError, AttributeError):
+            logger.warning("Skipped an unreadable Alpaca minute bar")
+    return sorted(candles, key=lambda candle: candle.timestamp)
+
+
+class AlpacaIntradayBars:
+    """One regular session of one-minute bars from Alpaca, for ordering a stop and a target
+    that a single daily bar touched together.
+
+    A session is fetched once and kept on disk (when a cache directory is given), because a
+    finished session never changes; a backtest that needed it once reads it offline after.
+    The free plan's minute bars come from IEX only, so a level reached only on another
+    exchange will not show; the venue then falls back to its worst-case assumption.
+    """
+
+    def __init__(
+        self,
+        alpaca_client: AlpacaClient,
+        cache_directory: Path | None = None,
+        *,
+        feed: str = "iex",
+    ):
+        self.alpaca_client, self.cache_directory, self.feed = alpaca_client, cache_directory, feed
+        self.name = f"alpaca-1min-{feed}"
+
+    def _cache_path(self, symbol: str, session_date: date) -> Path | None:
+        if self.cache_directory is None:
+            return None
+        return self.cache_directory / self.name / symbol / f"{session_date.isoformat()}.json"
+
+    async def fetch_session(self, symbol: str, daily_bar_time: datetime) -> list[Candle]:
+        """Minute bars from 09:30 to 16:00 New York time on the daily bar's session date,
+        oldest first. Raises on a provider failure; the caller decides what that means.
+        """
+        session_date = daily_bar_time.astimezone(NEW_YORK).date()
+        cache_path = self._cache_path(symbol, session_date)
+        closing_time = session_close(session_date)
+
+        def within_the_session(candles: list[Candle]) -> list[Candle]:
+            # Alpaca includes the minute that starts at the close; it belongs to after-hours.
+            return [candle for candle in candles if candle.timestamp < closing_time]
+
+        if cache_path is not None and cache_path.is_file():
+            return within_the_session(parse_intraday_bars(json.loads(cache_path.read_text())))
+        params = {
+            "symbols": symbol,
+            "timeframe": "1Min",
+            "start": datetime.combine(session_date, REGULAR_SESSION_OPEN, NEW_YORK)
+            .astimezone(UTC)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "end": closing_time.isoformat().replace("+00:00", "Z"),
+            "limit": BARS_PAGE_LIMIT,
+            "adjustment": "all",
+            "feed": self.feed,
+        }
+        raw_bars: list = []
+        for _ in range(MAXIMUM_BAR_PAGES):
+            payload = await self.alpaca_client.get_json(BARS_PATH, params)
+            raw_bars.extend((payload.get("bars") or {}).get(symbol) or [])
+            next_page_token = payload.get("next_page_token")
+            if not next_page_token:
+                break
+            params = {**params, "page_token": next_page_token}
+        candles = within_the_session(parse_intraday_bars(raw_bars))
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(raw_bars))
+        logger.info(
+            "Intraday bars fetched symbol=%s session=%s bars=%d", symbol, session_date, len(candles)
+        )
+        return candles
 
 
 def parse_alpaca_news(entries: object) -> list[NewsItem]:
