@@ -9,6 +9,10 @@ os.environ["TRADING_DESK_SKIP_ENV_FILE"] = "1"
 # that does not exist, so no test can authenticate or make a paid call.
 os.environ["ANTHROPIC_CONFIG_DIR"] = "/nonexistent-trading-desk-test-profile"
 os.environ.pop("ANTHROPIC_PROFILE", None)
+# Nor real market-data keys: with them the CLI would default to live Alpaca data
+# instead of the bundled fixture the tests are written against.
+for provider_key_name in ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "FINNHUB_API_KEY"):
+    os.environ.pop(provider_key_name, None)
 
 import logging  # noqa: E402
 

@@ -908,3 +908,73 @@ def test_sides_option_limits_which_way_the_desk_may_trade(monkeypatch, tmp_path,
     assert results["both"]["setup_rules"]["allowed_sides"] == ["LONG", "SHORT"]
     # A different side setting is a different configuration for the holdout ledger.
     assert len({result["configuration_hash"] for result in results.values()}) == 3
+
+
+def parse_resolved(monkeypatch, *arguments):
+    """Test helper (not a test): parses desk arguments and resolves the "auto" choices."""
+    from trading_desk import cli
+
+    monkeypatch.setattr(sys, "argv", ["trading-desk", *arguments])
+    args = cli.build_parser().parse_args()
+    cli.resolve_automatic_sources(args)
+    return args
+
+
+def test_without_alpaca_keys_the_desk_defaults_to_the_fixture_with_no_news(monkeypatch):
+    """Verifies: out of the box, with no keys, the desk runs offline on the bundled fixture
+    and long-only.
+    """
+    args = parse_resolved(monkeypatch, "desk", "decide", "AAPL")
+    assert (args.source, args.news, args.sides) == ("fixture", "none", "long")
+
+
+def test_with_alpaca_keys_the_desk_defaults_to_alpaca_data_and_news(monkeypatch):
+    """Verifies: once Alpaca keys are configured, Alpaca is the default for both prices and
+    news, with no flag needed.
+    """
+    monkeypatch.setenv("ALPACA_API_KEY_ID", "PKTESTKEYID0000000001")
+    monkeypatch.setenv("ALPACA_API_SECRET_KEY", "test-secret-key-0001")
+    args = parse_resolved(monkeypatch, "desk", "serve")
+    assert (args.source, args.news) == ("alpaca", "alpaca")
+    # Asking for a fixture scenario by name still means the fixture, and no real news.
+    scenario_args = parse_resolved(monkeypatch, "desk", "decide", "AAPL", "--scenario", "conflict")
+    assert (scenario_args.source, scenario_args.news) == ("fixture", "none")
+    explicit = parse_resolved(monkeypatch, "desk", "decide", "AAPL", "--source", "fixture")
+    assert (explicit.source, explicit.news) == ("fixture", "none")
+
+
+def test_finnhub_alone_supplies_news_for_another_real_data_source(monkeypatch, tmp_path):
+    """Verifies: with only a Finnhub key, automatic news is Finnhub when prices are real,
+    and still none beside the synthetic fixture.
+    """
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
+    real_data = parse_resolved(
+        monkeypatch, "desk", "decide", "AAPL", "--source", "csv", "--csv-dir", str(tmp_path)
+    )
+    assert real_data.news == "finnhub"
+    assert parse_resolved(monkeypatch, "desk", "decide", "AAPL").news == "none"
+
+
+def test_alpaca_news_is_backed_up_by_finnhub_when_both_are_configured(monkeypatch, tmp_path):
+    """Verifies: the news feed is Alpaca alone, or Alpaca with Finnhub behind it when a
+    Finnhub key is present; asking for Alpaca without keys is a clear error.
+    """
+    import httpx
+
+    from trading_desk import cli
+
+    args = parse_resolved(
+        monkeypatch, "desk", "decide", "AAPL", "--news", "alpaca", "--news-cache-dir", str(tmp_path)
+    )
+    client = httpx.AsyncClient()
+    with pytest.raises(ValueError, match="ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY"):
+        cli.build_news_feed(args, client)
+    monkeypatch.setenv("ALPACA_API_KEY_ID", "PKTESTKEYID0000000001")
+    monkeypatch.setenv("ALPACA_API_SECRET_KEY", "test-secret-key-0001")
+    assert cli.build_news_feed(args, client).name == "alpaca-news"
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
+    assert cli.build_news_feed(args, client).name == "alpaca-news (backup finnhub-company-news)"
+    assert (
+        cli.build_data_provider(parse_resolved(monkeypatch, "desk", "decide", "AAPL"), client).name
+        == "alpaca-daily-iex"
+    )

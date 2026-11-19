@@ -14,18 +14,17 @@ The records now exist (see "Trade records" in `CLAUDE.md`): every closed trade w
 
 ### Decide when shorts are allowed
 
-The short side is built (see "Both sides" in `CLAUDE.md`) and is on by default. In the first in-sample backtest it lost: short-only made 1 winner in 17 trades (-7.78%) over a window in which SPY rose 26.55%, and running both sides returned -0.52% against +6.59% long-only. Shorting individual downtrends inside a rising market did not work there.
+The short side is built (see "Both sides" in `CLAUDE.md`) and is off by default (`--sides long`). In the first in-sample backtest it lost: short-only made 1 winner in 17 trades (-7.78%) over a window in which SPY rose 26.55%, and running both sides returned -0.52% against +6.59% long-only. Shorting individual downtrends inside a rising market did not work there.
 
 - Candidate rule to test in-sample: allow shorts only when the benchmark (SPY) is itself in a bearish trend, and longs only when it is bullish or neutral.
-- Until that is tested, `--sides long` runs the desk long-only.
+- Until that is tested, the desk runs long-only unless `--sides both` or `--sides short` is passed.
 - Borrow fees and margin interest are not modelled; add them before trusting any short result.
 
 ### Live polling on Alpaca
 
-The Alpaca paper keys work (account, daily bars, snapshots, news). Nothing in the desk uses Alpaca yet, and no order is sent to any broker: every trade is simulated by the desk's own paper venue.
+Alpaca is now the default source for daily bars and news when its keys are set (Finnhub is the news backup), and the desk is long-only by default. Bars are stamped at the session close and an unfinished session is never returned, which settles how a forming daily bar is treated: it is ignored until it closes. No order is sent to any broker: every trade is simulated by the desk's own paper venue.
 
-- A live data provider on Alpaca bars, and a session mode that evaluates as bars arrive.
-- Decision needed: how a still-forming daily bar is treated.
+- Still to build: a session mode that polls Alpaca, evaluates each newly completed session once, and shows the latest traded prices between closes.
 - Cost: $0 on Alpaca's free market-data plan (IEX feed). The paid SIP feed has a monthly fee that has not been checked.
 
 ### Intraday resolution of ambiguous bars
