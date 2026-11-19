@@ -6,6 +6,7 @@ export type Command =
   | { kind: "pause" }
   | { kind: "resume" }
   | { kind: "stop" }
+  | { kind: "live" }
   | { kind: "speed"; barsPerSecond: number }
   | { kind: "killSwitch"; engaged: boolean }
   | { kind: "unknown"; message: string };
@@ -13,7 +14,7 @@ export type Command =
 export const MAXIMUM_BARS_PER_SECOND = 1000;
 const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,14}$/;
 export const COMMAND_HELP =
-  "Try a symbol (AAPL), START, PAUSE, RESUME, STOP, SPEED 8, KILL or ARM.";
+  "Try a symbol (AAPL), START, LIVE, PAUSE, RESUME, STOP, SPEED 8, KILL or ARM.";
 
 export function parseCommand(text: string, knownSymbols: string[]): Command {
   const words = text.trim().toUpperCase().split(/\s+/).filter(Boolean);
@@ -26,6 +27,8 @@ export function parseCommand(text: string, knownSymbols: string[]): Command {
       return { kind: "resume" };
     case "STOP":
       return { kind: "stop" };
+    case "LIVE":
+      return { kind: "live" };
     case "KILL":
       return { kind: "killSwitch", engaged: true };
     case "ARM":

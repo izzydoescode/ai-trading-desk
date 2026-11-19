@@ -79,6 +79,18 @@ describe("desk state", () => {
     expect(state.desk!.equity_curve.length).toBeGreaterThan(0); // status carries no data
   });
 
+  it("replaces the live prices when a price update arrives and leaves the bars alone", () => {
+    const before = fold([cloneSnapshot({ mode: "live" })]);
+    const state = fold(
+      [{ type: "prices", latest_prices: { AAPL: 352.66 }, prices_as_of: "2026-11-17T15:00:05Z" }],
+      before,
+    );
+    expect(state.desk!.latest_prices).toEqual({ AAPL: 352.66 });
+    expect(state.desk!.prices_as_of).toBe("2026-11-17T15:00:05Z");
+    expect(state.desk!.candles_by_symbol).toBe(before.desk!.candles_by_symbol);
+    expect(state.desk!.mode).toBe("live");
+  });
+
   it("tracks connection, selection and notices", () => {
     let state = deskReducer(INITIAL_STATE, { kind: "connection", connection: "open" });
     state = deskReducer(state, { kind: "select", symbol: "AAPL" });

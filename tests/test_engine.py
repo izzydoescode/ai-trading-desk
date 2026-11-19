@@ -442,3 +442,35 @@ async def test_running_long_only_a_downtrend_takes_no_trade():
     )
     assert result.closed_trades == []
     assert result.final_equity == STARTING_CASH
+
+
+async def test_the_engine_can_continue_a_journal_and_act_on_only_the_latest_bar():
+    """Verifies: `maximum_bars=1` processes just the newest bar in the window, a supplied run
+    id and first sequence number are used, and a non-positive `maximum_bars` is refused.
+    """
+    provider = FixtureProvider()
+    candles = (await provider.fetch("AAPL")).candles
+    engine_result = await run_engine(
+        ["AAPL"],
+        provider,
+        PaperVenue(100_000.0, US_EQUITIES),
+        start=candles[0].timestamp,
+        end=candles[-1].timestamp,
+        liquidate_at_end=False,
+        run_id="live-run",
+        first_event_sequence=40,
+        maximum_bars=1,
+    )
+    assert engine_result.run_id == "live-run"
+    assert engine_result.bars_processed == 1
+    assert engine_result.equity_curve[0].timestamp == candles[-1].timestamp
+    assert engine_result.events[0].sequence == 40
+    with pytest.raises(ValueError, match="maximum_bars"):
+        await run_engine(
+            ["AAPL"],
+            provider,
+            PaperVenue(100_000.0, US_EQUITIES),
+            start=candles[0].timestamp,
+            end=candles[-1].timestamp,
+            maximum_bars=0,
+        )

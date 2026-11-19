@@ -1,5 +1,5 @@
 import { STRATEGY_WORDS, type PriceLevel } from "../derive";
-import { directionGlyph, price, shortDate, signedPercent } from "../format";
+import { clockTime, directionGlyph, price, shortDate, signedPercent } from "../format";
 import type { Candle, DeskReport } from "../types";
 
 export const VISIBLE_CANDLES = 80;
@@ -19,9 +19,19 @@ interface ChartPanelProps {
   candles: Candle[];
   levels: PriceLevel[];
   report: DeskReport | undefined;
+  /** Latest traded price while polling live; absent in a replay. */
+  livePrice?: number | null;
+  livePriceTime?: string | null;
 }
 
-export function ChartPanel({ symbol, candles, levels, report }: ChartPanelProps) {
+export function ChartPanel({
+  symbol,
+  candles,
+  levels,
+  report,
+  livePrice = null,
+  livePriceTime = null,
+}: ChartPanelProps) {
   const visible = candles.slice(-VISIBLE_CANDLES);
   const indicators = report?.indicators;
   const lastClose = visible.at(-1)?.close ?? null;
@@ -57,8 +67,15 @@ export function ChartPanel({ symbol, candles, levels, report }: ChartPanelProps)
           )}
         </div>
         <div className="readings">
+          {livePrice != null && (
+            <span title="Latest traded price, for display. The desk decides on closed sessions only.">
+              <span className="label">LIVE </span>
+              <strong className="amber">{price(livePrice)}</strong>
+              <span className="label"> {clockTime(livePriceTime)}</span>
+            </span>
+          )}
           <span>
-            <span className="label">LAST </span>
+            <span className="label">{livePrice != null ? "CLOSE " : "LAST "}</span>
             <strong className="amber">{price(lastClose)}</strong>
           </span>
           <span className={`tone-${indicators?.return20_pct == null ? "dim" : indicators.return20_pct >= 0 ? "up" : "down"}`}>

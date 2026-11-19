@@ -26,6 +26,7 @@ export function App() {
   const symbol = focusSymbol(desk, state.selectedSymbol);
   const report = symbol && desk ? desk.reports_by_symbol[symbol] : undefined;
   const cards = agentCards(desk, symbol);
+  const isLive = desk?.mode === "live";
 
   return (
     <div className="terminal">
@@ -38,6 +39,11 @@ export function App() {
       {desk?.status === "FAILED" && (
         <div className="halt-banner" role="alert">
           ✕ REPLAY FAILED · {desk.error ?? "unknown error"} · nothing was traded after the failure
+        </div>
+      )}
+      {isLive && desk?.status === "RUNNING" && desk.error && (
+        <div className="halt-banner" role="alert">
+          ! LIVE DATA CHECK FAILED · {desk.error} · retrying on the next poll, nothing was traded
         </div>
       )}
       <CommandLine
@@ -53,6 +59,8 @@ export function App() {
           candles={(symbol && desk?.candles_by_symbol[symbol]) || []}
           levels={priceLevels(desk, symbol)}
           report={report}
+          livePrice={isLive && symbol ? desk?.latest_prices?.[symbol] : null}
+          livePriceTime={desk?.prices_as_of}
         />
         <div className="decision-column">
           <DecisionPanel report={report} />
@@ -76,7 +84,13 @@ export function App() {
       </div>
       <Pipeline stages={pipelineStages(report)} />
       <footer className="label small">
-        <span>Paper trading only. Replay of historical daily bars. No orders reach a broker.</span>
+        <span>
+          Paper trading only.{" "}
+          {isLive
+            ? "Live prices are for display; the desk decides on completed daily sessions."
+            : "Replay of historical daily bars."}{" "}
+          No orders reach a broker.
+        </span>
         <span>Research tool, not investment advice.</span>
       </footer>
     </div>

@@ -1,5 +1,6 @@
 import {
   barTime,
+  clockTime,
   direction,
   directionGlyph,
   MISSING,
@@ -54,6 +55,9 @@ describe("formatting", () => {
   it("formats bar times in UTC and tidies machine reasons", () => {
     expect(barTime("2025-03-13T21:00:00Z")).toBe("2025-03-13 21:00 UTC");
     expect(shortDate("2025-03-13T21:00:00Z")).toBe("03-13");
+    expect(clockTime("2025-03-13T21:00:05Z")).toBe("21:00:05 UTC");
+    expect(clockTime(null)).toBe(MISSING);
+    expect(clockTime("not a time")).toBe(MISSING);
     expect(plainReason("queued_for_next_open")).toBe("queued for next open");
   });
 });

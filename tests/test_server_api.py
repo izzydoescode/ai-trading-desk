@@ -152,11 +152,10 @@ def test_kill_switch_over_http_blocks_every_idea(client):
     assert released.json()["kill_switch_engaged"] is False
 
 
-def test_live_mode_is_refused_and_replay_mode_is_a_no_op(client):
-    """Verifies: live mode is refused and replay mode is a no op."""
-    live = client.post("/api/mode", json={"mode": "live"})
-    assert live.status_code == 501
-    assert "paper venue" in live.json()["detail"]
+def test_replay_mode_is_a_no_op_on_an_idle_replay_desk(client):
+    """Verifies: asking for replay mode on an idle replay desk changes nothing. Live mode has
+    its own tests in test_live_polling.py.
+    """
     replay = client.post("/api/mode", json={"mode": "replay"})
     assert (replay.status_code, replay.json()["mode"]) == (200, "replay")
 

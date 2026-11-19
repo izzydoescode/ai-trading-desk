@@ -83,8 +83,15 @@ class EngineResult:
 class _EventRecorder:
     """Numbers events, keeps them, and forwards them to the journal and listener."""
 
-    def __init__(self, run_id: str, journal: Journal | None, listener: EventListener | None):
+    def __init__(
+        self,
+        run_id: str,
+        journal: Journal | None,
+        listener: EventListener | None,
+        first_sequence: int = 0,
+    ):
         self.run_id, self.journal, self.listener = run_id, journal, listener
+        self.first_sequence = first_sequence
         self.events: list[DeskEvent] = []
 
     def emit(
@@ -101,7 +108,7 @@ class _EventRecorder:
         """
         event = DeskEvent(
             run_id=self.run_id,
-            sequence=len(self.events),
+            sequence=self.first_sequence + len(self.events),
             timestamp=timestamp,
             symbol=symbol,
             agent=agent,
@@ -168,16 +175,28 @@ async def run_engine(
     sentiment_feed: SentimentFeed | None = None,
     news_tone_feed: SentimentFeed | None = None,
     liquidate_at_end: bool = True,
+    run_id: str | None = None,
+    first_event_sequence: int = 0,
+    maximum_bars: int | None = None,
 ) -> EngineResult:
     """Drive the desk over every bar in `[start, end]` and return what happened.
 
     `on_bar` is awaited once per bar after the bar is fully processed. A replay
     uses it to pace, pause and publish; it cannot change what the desk decided.
+
+    Live polling calls this repeatedly with the same venue, each time over the
+    window since the last bar it processed. For that it passes its own `run_id`
+    and `first_event_sequence` so the calls form one continuous journal, keeps
+    positions open with `liquidate_at_end=False`, and on its first call uses
+    `maximum_bars=1` to act on the latest completed session only instead of
+    trading its way through the look-back window.
     """
     if end < start:
         raise ValueError("the run ends before it starts")
-    run_id = str(uuid4())
-    recorder = _EventRecorder(run_id, journal, on_event)
+    if maximum_bars is not None and maximum_bars < 1:
+        raise ValueError("maximum_bars must be at least 1")
+    run_id = run_id or str(uuid4())
+    recorder = _EventRecorder(run_id, journal, on_event, first_event_sequence)
     preloaded_provider = await preload_history(data_provider, symbols)
     desk = Desk(
         preloaded_provider,
@@ -212,6 +231,8 @@ async def run_engine(
             if start <= timestamp <= end
         }
     )
+    if maximum_bars is not None:
+        timeline = timeline[-maximum_bars:]
 
     result = EngineResult(run_id=run_id, starting_equity=venue.equity, final_equity=venue.equity)
     trades_already_recorded = len(venue.closed_trades)
@@ -332,7 +353,9 @@ async def run_engine(
         )
     result.final_equity = venue.equity
     result.events = recorder.events
-    logger.info(
+    logger.log(
+        # A live poll that found no new session is routine; a run that processed bars is not.
+        logging.INFO if result.bars_processed else logging.DEBUG,
         "Engine run complete run_id=%s symbols=%d bars=%d events=%d closed_trades=%d "
         "starting_equity=%.2f final_equity=%.2f",
         run_id,

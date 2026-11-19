@@ -53,7 +53,7 @@ npm --prefix web run dev            # http://127.0.0.1:5173, proxies /api and /w
 npm --prefix web run typecheck
 npm --prefix web run test:coverage  # Vitest, 80% gate on lines, branches, functions, statements
 npm --prefix web run build          # writes web/dist; `desk serve` then serves it at /
-npm --prefix web run e2e            # Playwright: starts `desk serve` itself on :8137 (build first)
+npm --prefix web run e2e            # Playwright: starts `desk serve --source fixture` itself on :8137 (build first)
 ```
 
 `.github/workflows/web.yml` runs `npm ci`, typecheck, tests with coverage, build and `npm audit` for `web/`. The audit blocks on shipped dependencies only (`--omit=dev`); build and test tools are audited in a second, report-only step, because the picomatch advisory GHSA-fc5q-39xc-vjpf has no patched release yet. Make that step blocking again when one exists.
@@ -130,13 +130,15 @@ Both adapters share a pattern: three attempts with exponential backoff for trans
 
 ### Desk server (`server/`)
 
-`DeskSession` (`server/session.py`) owns one paper venue and at most one replay. It runs the same `run_engine` loop as the backtest and uses the engine's `on_bar` hook only to pace, pause and publish; it cannot change a decision. `create_app()` (`server/app.py`) exposes it over HTTP (`/api/state`, `/api/replay/*`, `/api/kill-switch`, `/api/mode`, `/api/backtest`) and a WebSocket (`/ws/events`: one snapshot, then `bar`, `event`, `account` and `status` messages).
+`DeskSession` (`server/session.py`) owns one paper venue and at most one replay. It runs the same `run_engine` loop as the backtest and uses the engine's `on_bar` hook only to pace, pause and publish; it cannot change a decision. `create_app()` (`server/app.py`) exposes it over HTTP (`/api/state`, `/api/replay/*`, `/api/kill-switch`, `/api/mode`, `/api/backtest`) and a WebSocket (`/ws/events`: one snapshot, then `bar`, `event`, `account`, `status` and, when live, `prices` messages).
 
-There is no login, so keep these properties: `desk serve` refuses any non-loopback `--host`; writes and WebSocket connections carrying a non-local `Origin` are refused; the out-of-sample window is never evaluated through the API; `live` mode answers 501. Tests drive the app in-process with `fastapi.testclient.TestClient` and inject the pacing sleep.
+**Live polling.** `POST /api/mode {"mode": "live"}` calls `DeskSession.start_live(LiveSettings)`. It is the same engine and the same paper venue as a replay, called repeatedly: every `bar_check_seconds` (default 300) the session re-reads the daily history and runs `run_engine` over any session completed since the last one it processed, passing its own `run_id` and `first_event_sequence` so the calls form one journal and `liquidate_at_end=False` so positions stay open. The first call uses `maximum_bars=1`, so going live acts on the latest completed session only and never trades through the look-back window; earlier history is loaded for the chart. Every `price_poll_seconds` (default 15) it reads `latest_prices()` and publishes a `prices` message; those prices are for display and never reach a decision. A failed poll sets `error` to the exception's class name, keeps the run going and is retried. Live needs a data provider with `latest_prices` (Alpaca); on any other source the endpoint answers 501. A queued idea fills at the next session's open, which the desk only sees once that session's daily bar is complete, so a fill appears after the close, not at 09:30. No order is sent to a broker in either mode.
+
+There is no login, so keep these properties: `desk serve` refuses any non-loopback `--host`; writes and WebSocket connections carrying a non-local `Origin` are refused; the out-of-sample window is never evaluated through the API; `live` mode means live data on the paper venue, never live orders. Tests drive the app in-process with `fastapi.testclient.TestClient` and inject the pacing sleep.
 
 ### Terminal UI (`web/`)
 
-One page, no router. `api.ts` is the only file that talks to the server; `state.ts` is a pure reducer that folds the WebSocket messages (`snapshot`, `bar`, `event`, `account`, `status`) into one snapshot-shaped object; `derive.ts` turns that into what each panel shows; `components/` only render. Server field names are kept as-is (`types.ts`), so there is no mapping layer to drift. The chart is hand-drawn SVG, not a charting library. Tests replay real server output captured in `web/src/test/fixtures/` (regenerate by running a fixture replay through `DeskSession` if the message shapes change). Missing numbers render as a dash, never zero, and every state has a word or glyph as well as a colour.
+One page, no router. `api.ts` is the only file that talks to the server; `state.ts` is a pure reducer that folds the WebSocket messages (`snapshot`, `bar`, `event`, `account`, `status`, `prices`) into one snapshot-shaped object; `derive.ts` turns that into what each panel shows; `components/` only render. Server field names are kept as-is (`types.ts`), so there is no mapping layer to drift. The chart is hand-drawn SVG, not a charting library. Tests replay real server output captured in `web/src/test/fixtures/` (regenerate by running a fixture replay through `DeskSession` if the message shapes change). Missing numbers render as a dash, never zero, and every state has a word or glyph as well as a colour.
 
 ### Error and logging hygiene
 

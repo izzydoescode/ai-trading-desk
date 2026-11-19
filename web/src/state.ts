@@ -54,6 +54,12 @@ function applyMessage(desk: Snapshot | null, message: ServerMessage): Snapshot |
       return { ...desk, ...statusFieldsOf(message) };
     case "account":
       return { ...desk, account: message.account };
+    case "prices":
+      return {
+        ...desk,
+        latest_prices: message.latest_prices,
+        prices_as_of: message.prices_as_of,
+      };
     case "event":
       return {
         ...desk,
