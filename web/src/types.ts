@@ -12,12 +12,14 @@ export interface ScoutSignal {
   kind:
     | "NEW_52_WEEK_HIGH"
     | "NEW_52_WEEK_LOW"
-    | "BREAKOUT_ABOVE_PRIOR_DAY_HIGH"
+    | "BIG_PERCENT_GAINER"
     | "BREAKDOWN_BELOW_PRIOR_DAY_LOW";
   level: number;
   is_bullish: boolean;
   /** False means the move came without a volume surge: low probability. */
   volume_confirmed: boolean;
+  /** The day's gain in percent; only a big percent gainer carries it. */
+  change_pct?: number | null;
 }
 
 export interface Candle {

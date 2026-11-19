@@ -93,7 +93,7 @@ export interface SignalTag {
 const SIGNAL_LABELS: Record<ScoutSignal["kind"], string> = {
   NEW_52_WEEK_HIGH: "52W HIGH",
   NEW_52_WEEK_LOW: "52W LOW",
-  BREAKOUT_ABOVE_PRIOR_DAY_HIGH: "BREAKOUT",
+  BIG_PERCENT_GAINER: "BIG GAINER",
   BREAKDOWN_BELOW_PRIOR_DAY_LOW: "BREAKDOWN",
 };
 
@@ -101,10 +101,14 @@ const SIGNAL_LABELS: Record<ScoutSignal["kind"], string> = {
  *  and says "no vol", because a move without volume is a low-probability signal. */
 export function signalTag(signal: ScoutSignal): SignalTag {
   const label = SIGNAL_LABELS[signal.kind];
+  const move =
+    signal.change_pct != null
+      ? `${label.toLowerCase()} +${signal.change_pct.toFixed(1)}% from ${price(signal.level)}`
+      : `${label.toLowerCase()} at ${price(signal.level)}`;
   return {
     label: signal.volume_confirmed ? `${label} ✓` : `${label} · no vol`,
     tone: signal.volume_confirmed ? (signal.is_bullish ? "up" : "down") : "dim",
-    description: `${label.toLowerCase()} at ${price(signal.level)}, ${
+    description: `${move}, ${
       signal.volume_confirmed ? "confirmed by volume" : "not confirmed by volume"
     }`,
   };
