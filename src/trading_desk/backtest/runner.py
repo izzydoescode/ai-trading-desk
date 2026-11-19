@@ -76,6 +76,12 @@ class HoldoutLedger:
 
 
 class BacktestReport(Model):
+    """The saved result of a backtest: its configuration and fingerprint, the in-sample scorecard,
+    the
+    out-of-sample scorecard only if it was deliberately evaluated, and the caveats that apply to
+    reading it.
+    """
+
     generated_at: AwareDatetime
     market: str
     data_source: str

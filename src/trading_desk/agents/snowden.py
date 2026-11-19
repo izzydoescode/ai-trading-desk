@@ -28,6 +28,14 @@ def report(
     as_of: datetime,
     headline_tone: SentimentReading | None = None,
 ) -> NewsReport:
+    """Build SNOWDEN's news report from supplied items, as of the evaluation time.
+
+    Abstains when no items were supplied, or when no factual item from the last 7 days remains
+    after dropping anything published after `as_of`. Splits what is left into dated facts and
+    commentary and flags stale or duplicated items. Without a headline-tone reading the verdict is
+    NEUTRAL; with one it is BULLISH at 60% or more bullish among directional headlines, BEARISH at
+    40% or less, and needs at least five directional headlines to say either.
+    """
     if news_items is None:
         return NewsReport(
             verdict=Classification.INSUFFICIENT_DATA,

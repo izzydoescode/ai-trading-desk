@@ -18,6 +18,12 @@ class MarketDataProvider(Protocol):
 
 
 class FixtureProvider:
+    """Bundled synthetic AAPL candles for offline runs and tests, in three scenarios: a clean
+    uptrend,
+    an overbought conflict, and missing history. Any other symbol gets an error instead of
+    relabelled data.
+    """
+
     name = "bundled-synthetic-fixture"
 
     def __init__(self, scenario: str = "trend"):
@@ -48,6 +54,9 @@ class AlphaVantageProvider:
         self.api_key, self.client = api_key, client
 
     async def fetch(self, symbol: str) -> MarketData:
+        """Fetch unadjusted daily bars from Alpha Vantage, retrying transport errors, 429 and 5xx.
+        Rate-limit notes and malformed payloads are reported as errors on the data.
+        """
         for attempt in range(3):
             try:
                 response = await self.client.get(

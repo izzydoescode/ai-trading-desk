@@ -25,7 +25,8 @@ LAST_BAR = datetime(2025, 4, 23, 21, tzinfo=UTC)
 FIXTURE_BAR_COUNT = 80
 
 
-def replay_settings(**overrides):
+def make_replay_settings(**overrides):
+    """Test helper (not a test): builds replay settings for the tests below."""
     return ReplaySettings(
         **{
             "symbols": ["AAPL"],
@@ -38,12 +39,15 @@ def replay_settings(**overrides):
 
 
 async def yield_once(seconds):
+    """Test helper (not a test): yield once."""
     await asyncio.sleep(0)
 
 
-def session_that(acts_on_bar=None, **options):
-    """A session whose pacing sleep returns at once; `acts_on_bar(session, bar_number)`
-    is called before each sleep so a test can steer the run at an exact bar."""
+def make_session(acts_on_bar=None, **options):
+    """Test helper (not a test): A session whose pacing sleep returns at once;
+    `acts_on_bar(session, bar_number)` is called before each sleep so a test can steer the run
+    at an exact bar.
+    """
     paced_bars = []
 
     async def sleeper(seconds):
@@ -57,6 +61,8 @@ def session_that(acts_on_bar=None, **options):
 
 
 async def wait_for_status(desk_session, expected_status, timeout_seconds=10.0):
+    """Test helper (not a test): wait for status."""
+
     async def poll():
         while desk_session.status is not expected_status:
             await asyncio.sleep(0.001)
@@ -65,6 +71,7 @@ async def wait_for_status(desk_session, expected_status, timeout_seconds=10.0):
 
 
 def drain(subscriber_queue):
+    """Test helper (not a test): drain."""
     messages = []
     while not subscriber_queue.empty():
         messages.append(subscriber_queue.get_nowait())
@@ -72,8 +79,9 @@ def drain(subscriber_queue):
 
 
 async def test_replay_runs_to_the_end_and_matches_a_plain_engine_run():
-    desk_session, paced_bars = session_that()
-    await desk_session.start(replay_settings())
+    """Verifies: replay runs to the end and matches a plain engine run."""
+    desk_session, paced_bars = make_session()
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     plain_result = await run_engine(
         ["AAPL"],
@@ -97,9 +105,10 @@ async def test_replay_runs_to_the_end_and_matches_a_plain_engine_run():
 
 
 async def test_subscriber_gets_a_snapshot_then_bars_events_and_a_final_status():
-    desk_session, _ = session_that()
+    """Verifies: subscriber gets a snapshot then bars events and a final status."""
+    desk_session, _ = make_session()
     subscriber_queue = desk_session.subscribe()
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     messages = drain(subscriber_queue)
     assert messages[0]["type"] == "snapshot"
@@ -119,9 +128,10 @@ async def test_subscriber_gets_a_snapshot_then_bars_events_and_a_final_status():
 
 
 async def test_a_queued_snapshot_does_not_grow_while_the_run_continues():
-    desk_session, _ = session_that()
+    """Verifies: a queued snapshot does not grow while the run continues."""
+    desk_session, _ = make_session()
     subscriber_queue = desk_session.subscribe()
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     opening_snapshot = drain(subscriber_queue)[0]
     assert opening_snapshot["type"] == "snapshot"
@@ -132,17 +142,19 @@ async def test_a_queued_snapshot_does_not_grow_while_the_run_continues():
 
 
 async def test_pause_holds_the_bar_and_resume_finishes_the_run():
+    """Verifies: pause holds the bar and resume finishes the run."""
+
     def pause_on_bar_ten(desk_session, bar_number):
         if bar_number == 10:
             desk_session.pause()
 
-    desk_session, _ = session_that(pause_on_bar_ten)
-    await desk_session.start(replay_settings())
+    desk_session, _ = make_session(pause_on_bar_ten)
+    await desk_session.start(make_replay_settings())
     await wait_for_status(desk_session, SessionStatus.PAUSED)
     await asyncio.sleep(0.02)  # a paused run must not advance
     assert desk_session.bar_index == 9
     with pytest.raises(SessionBusyError):
-        await desk_session.start(replay_settings())
+        await desk_session.start(make_replay_settings())
     with pytest.raises(SessionNotRunningError):
         desk_session.pause()
     desk_session.resume()
@@ -154,7 +166,8 @@ async def test_pause_holds_the_bar_and_resume_finishes_the_run():
 
 
 async def test_controls_that_need_a_run_refuse_when_idle():
-    desk_session, _ = session_that()
+    """Verifies: controls that need a run refuse when idle."""
+    desk_session, _ = make_session()
     with pytest.raises(SessionNotRunningError):
         desk_session.pause()
     with pytest.raises(SessionNotRunningError):
@@ -166,12 +179,14 @@ async def test_controls_that_need_a_run_refuse_when_idle():
 
 
 async def test_speed_sets_the_wait_between_bars_and_rejects_nonsense():
+    """Verifies: speed sets the wait between bars and rejects nonsense."""
+
     def speed_up_on_bar_three(desk_session, bar_number):
         if bar_number == 3:
             desk_session.set_speed(8)
 
-    desk_session, paced_bars = session_that(speed_up_on_bar_three)
-    await desk_session.start(replay_settings(bars_per_second=4))
+    desk_session, paced_bars = make_session(speed_up_on_bar_three)
+    await desk_session.start(make_replay_settings(bars_per_second=4))
     await desk_session.wait_until_finished()
     assert paced_bars[:3] == [0.25, 0.25, 0.25]
     assert paced_bars[3] == 0.125
@@ -181,9 +196,10 @@ async def test_speed_sets_the_wait_between_bars_and_rejects_nonsense():
 
 
 async def test_kill_switch_engaged_before_the_run_means_no_ideas_at_all():
-    desk_session, _ = session_that()
+    """Verifies: kill switch engaged before the run means no ideas at all."""
+    desk_session, _ = make_session()
     desk_session.set_kill_switch(True)
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     assert desk_session.snapshot()["kill_switch_engaged"] is True
     assert [event["kind"] for event in desk_session.recent_events] == ["HALT"]
@@ -193,6 +209,7 @@ async def test_kill_switch_engaged_before_the_run_means_no_ideas_at_all():
 
 
 async def test_kill_switch_mid_run_halts_new_ideas_and_release_allows_them_again():
+    """Verifies: kill switch mid run halts new ideas and release allows them again."""
     observed = {}
 
     def engage_then_release(desk_session, bar_number):
@@ -205,9 +222,9 @@ async def test_kill_switch_mid_run_halts_new_ideas_and_release_allows_them_again
             observed["latest_report_at"] = desk_session.reports_by_symbol["AAPL"]["evaluated_as_of"]
             desk_session.set_kill_switch(False)
 
-    desk_session, _ = session_that(engage_then_release)
+    desk_session, _ = make_session(engage_then_release)
     subscriber_queue = desk_session.subscribe()
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     assert observed["was_halted"]
     # No decision was made between the halt and the release 55 bars later...
@@ -230,28 +247,32 @@ async def test_kill_switch_mid_run_halts_new_ideas_and_release_allows_them_again
 
 
 async def test_stop_cancels_a_paused_run():
+    """Verifies: stop cancels a paused run."""
+
     def pause_on_bar_five(desk_session, bar_number):
         if bar_number == 5:
             desk_session.pause()
 
-    desk_session, _ = session_that(pause_on_bar_five)
-    await desk_session.start(replay_settings())
+    desk_session, _ = make_session(pause_on_bar_five)
+    await desk_session.start(make_replay_settings())
     await wait_for_status(desk_session, SessionStatus.PAUSED)
     await desk_session.stop()
     assert desk_session.status is SessionStatus.IDLE
     assert desk_session.bar_index == 4
-    await desk_session.start(replay_settings())  # a stopped session can start again
+    await desk_session.start(make_replay_settings())  # a stopped session can start again
     await desk_session.wait_until_finished()
     assert desk_session.status is SessionStatus.FINISHED
 
 
 async def test_a_failed_run_reports_only_the_error_class(monkeypatch):
+    """Verifies: a failed run reports only the error class."""
+
     async def failing_engine(*arguments, **options):
         raise RuntimeError("https://vendor.example/bars?apikey=SECRET-VALUE")
 
     monkeypatch.setattr(session_module, "run_engine", failing_engine)
-    desk_session, _ = session_that()
-    await desk_session.start(replay_settings())
+    desk_session, _ = make_session()
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     assert desk_session.status is SessionStatus.FAILED
     assert desk_session.error == "RuntimeError"
@@ -259,10 +280,11 @@ async def test_a_failed_run_reports_only_the_error_class(monkeypatch):
 
 
 async def test_a_reader_that_falls_behind_is_told_to_resync(monkeypatch):
+    """Verifies: a reader that falls behind is told to resync."""
     monkeypatch.setattr(session_module, "SUBSCRIBER_QUEUE_LIMIT", 5)
-    desk_session, _ = session_that()
+    desk_session, _ = make_session()
     subscriber_queue = desk_session.subscribe()
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     messages = drain(subscriber_queue)
     assert len(messages) <= 5
@@ -270,15 +292,18 @@ async def test_a_reader_that_falls_behind_is_told_to_resync(monkeypatch):
 
 
 def test_replay_settings_reject_a_backwards_window_and_unknown_fields():
+    """Verifies: replay settings reject a backwards window and unknown fields."""
     with pytest.raises(ValidationError, match="ends before it starts"):
-        replay_settings(start=LAST_BAR, end=FIRST_BAR)
+        make_replay_settings(start=LAST_BAR, end=FIRST_BAR)
     with pytest.raises(ValidationError):
-        replay_settings(symbols=[])
+        make_replay_settings(symbols=[])
     with pytest.raises(ValidationError):
-        replay_settings(leverage=3)
+        make_replay_settings(leverage=3)
 
 
 async def test_session_passes_its_news_feed_to_the_desk_and_names_it():
+    """Verifies: session passes its news feed to the desk and names it."""
+
     class OneItemFeed:
         name = "one-item-feed"
 
@@ -292,17 +317,18 @@ async def test_session_passes_its_news_feed_to_the_desk_and_names_it():
 
     desk_session = DeskSession(FixtureProvider(), news_feed=OneItemFeed(), sleep=sleeper)
     assert desk_session.snapshot()["news_source"] == "one-item-feed"
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     news_report = desk_session.reports_by_symbol["AAPL"]["news"]
     assert news_report["abstain"] is False
     assert news_report["verified_facts"][0]["headline"] == "Dated item"
-    plain_session, _ = session_that()
+    plain_session, _ = make_session()
     assert plain_session.snapshot()["news_source"] is None
     assert plain_session.snapshot()["sentiment_source"] is None
 
 
 async def test_session_passes_its_sentiment_feed_to_the_desk_and_names_it():
+    """Verifies: session passes its sentiment feed to the desk and names it."""
     from trading_desk.agents.fama import SentimentReading
 
     class SteadyTone:
@@ -318,12 +344,13 @@ async def test_session_passes_its_sentiment_feed_to_the_desk_and_names_it():
 
     desk_session = DeskSession(FixtureProvider(), sentiment_feed=SteadyTone(), sleep=sleeper)
     assert desk_session.snapshot()["sentiment_source"] == "steady-tone"
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     assert desk_session.reports_by_symbol["AAPL"]["sentiment"]["mood_score"] == 60
 
 
 async def test_session_passes_its_news_tone_feed_to_snowden():
+    """Verifies: session passes its news tone feed to snowden."""
     from trading_desk.agents.fama import SentimentReading
     from trading_desk.models import NewsItem
 
@@ -347,7 +374,7 @@ async def test_session_passes_its_news_tone_feed_to_snowden():
     desk_session = DeskSession(
         FixtureProvider(), news_feed=OneItemFeed(), news_tone_feed=BearishTone(), sleep=sleeper
     )
-    await desk_session.start(replay_settings())
+    await desk_session.start(make_replay_settings())
     await desk_session.wait_until_finished()
     assert desk_session.reports_by_symbol["AAPL"]["news"]["verdict"] == "BEARISH"
     # Bearish news can only make the desk wait: no trade was ever taken.

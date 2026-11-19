@@ -34,6 +34,10 @@ APPROVAL = GateVerdict(approve=True, rationale="Reports agree.", concerns=[])
 
 
 class FakeAnthropicMessages:
+    """Test double (not a test): stands in for a real anthropicmessages so the tests control its
+    behaviour.
+    """
+
     def __init__(self, parsed_output, stop_reason="end_turn"):
         self.parsed_output, self.stop_reason = parsed_output, stop_reason
         self.requests = []
@@ -47,14 +51,16 @@ class FakeAnthropicMessages:
         )
 
 
-def anthropic_provider(parsed_output, stop_reason="end_turn", usage_meter=None):
+def make_anthropic_provider(parsed_output, stop_reason="end_turn", usage_meter=None):
+    """Test helper (not a test): builds anthropic provider for the tests below."""
     messages = FakeAnthropicMessages(parsed_output, stop_reason)
     provider = AnthropicProvider(SimpleNamespace(messages=messages), usage_meter=usage_meter)
     return provider, messages
 
 
 async def test_anthropic_reason_sends_schema_and_data_separately_from_instructions():
-    provider, messages = anthropic_provider(ABSTAINING_ANALYSIS)
+    """Verifies: anthropic reason sends schema and data separately from instructions."""
+    provider, messages = make_anthropic_provider(ABSTAINING_ANALYSIS)
     result = await provider.reason("technical", {"symbol": "AAPL"})
     request = messages.requests[0]
     assert result == ABSTAINING_ANALYSIS
@@ -66,7 +72,8 @@ async def test_anthropic_reason_sends_schema_and_data_separately_from_instructio
 
 
 async def test_anthropic_gate_uses_the_gate_instructions_and_schema():
-    provider, messages = anthropic_provider(APPROVAL)
+    """Verifies: anthropic gate uses the gate instructions and schema."""
+    provider, messages = make_anthropic_provider(APPROVAL)
     assert await provider.review_trade({"plan": {}}) == APPROVAL
     assert messages.requests[0]["system"] == GATE_INSTRUCTIONS
     assert messages.requests[0]["output_format"] is GateVerdict
@@ -79,14 +86,16 @@ async def test_anthropic_gate_uses_the_gate_instructions_and_schema():
 async def test_anthropic_refusal_truncation_or_missing_output_is_an_error(
     parsed_output, stop_reason
 ):
-    provider, _ = anthropic_provider(parsed_output, stop_reason)
+    """Verifies: anthropic refusal truncation or missing output is an error."""
+    provider, _ = make_anthropic_provider(parsed_output, stop_reason)
     with pytest.raises(ValueError, match="unusable"):
         await provider.review_trade({})
 
 
 async def test_usage_is_metered_in_tokens_and_dollars():
+    """Verifies: usage is metered in tokens and dollars."""
     usage_meter = UsageMeter()
-    provider, _ = anthropic_provider(APPROVAL, usage_meter=usage_meter)
+    provider, _ = make_anthropic_provider(APPROVAL, usage_meter=usage_meter)
     await provider.review_trade({})
     await provider.review_trade({})
     assert usage_meter.call_count == 2
@@ -97,8 +106,9 @@ async def test_usage_is_metered_in_tokens_and_dollars():
 
 
 async def test_cost_cap_stops_further_calls_before_they_are_sent():
+    """Verifies: cost cap stops further calls before they are sent."""
     usage_meter = UsageMeter(maximum_cost_usd=0.0002)
-    provider, messages = anthropic_provider(APPROVAL, usage_meter=usage_meter)
+    provider, messages = make_anthropic_provider(APPROVAL, usage_meter=usage_meter)
     await provider.review_trade({})
     with pytest.raises(CostCapExceededError):
         await provider.review_trade({})
@@ -106,12 +116,14 @@ async def test_cost_cap_stops_further_calls_before_they_are_sent():
 
 
 def test_unknown_models_are_metered_at_the_highest_price_never_as_free():
+    """Verifies: unknown models are metered at the highest price never as free."""
     usage_meter = UsageMeter()
     usage_meter.record("some-new-model", 1_000_000, 0)
     assert usage_meter.cost_usd == pytest.approx(4.0)
 
 
 async def test_openai_gate_request_shape_and_usage():
+    """Verifies: openai gate request shape and usage."""
     usage_meter = UsageMeter()
 
     def handler(request):
@@ -141,6 +153,8 @@ async def test_openai_gate_request_shape_and_usage():
 
 
 class CountingReasoner:
+    """Test double (not a test): stands in for a real reasoner so tests control what it does."""
+
     name = "counting:model"
 
     def __init__(self, fail=False):
@@ -158,6 +172,7 @@ class CountingReasoner:
 
 
 async def test_cache_answers_repeat_questions_without_calling_the_model(tmp_path):
+    """Verifies: cache answers repeat questions without calling the model."""
     wrapped_provider = CountingReasoner()
     cached_provider = CachingReasoningProvider(wrapped_provider, tmp_path)
     for _ in range(3):
@@ -171,6 +186,7 @@ async def test_cache_answers_repeat_questions_without_calling_the_model(tmp_path
 
 
 async def test_cache_distinguishes_inputs_tasks_and_roles(tmp_path):
+    """Verifies: cache distinguishes inputs tasks and roles."""
     wrapped_provider = CountingReasoner()
     cached_provider = CachingReasoningProvider(wrapped_provider, tmp_path)
     await cached_provider.review_trade({"symbol": "AAPL"})
@@ -181,6 +197,7 @@ async def test_cache_distinguishes_inputs_tasks_and_roles(tmp_path):
 
 
 async def test_cache_never_stores_failures_and_replaces_corrupt_entries(tmp_path):
+    """Verifies: cache never stores failures and replaces corrupt entries."""
     failing_provider = CountingReasoner(fail=True)
     cached_provider = CachingReasoningProvider(failing_provider, tmp_path)
     for _ in range(2):
@@ -214,7 +231,8 @@ TONE_CONTEXT = {
 
 
 async def test_anthropic_headline_tone_uses_its_own_instructions_and_schema():
-    provider, messages = anthropic_provider(TONE)
+    """Verifies: anthropic headline tone uses its own instructions and schema."""
+    provider, messages = make_anthropic_provider(TONE)
     assert await provider.classify_headlines(TONE_CONTEXT) == TONE
     request = messages.requests[0]
     assert request["system"] == TONE_INSTRUCTIONS
@@ -223,7 +241,7 @@ async def test_anthropic_headline_tone_uses_its_own_instructions_and_schema():
     # Rote labelling runs without reasoning and with room for every label.
     assert request["thinking"] == {"type": "disabled"}
     assert request["max_tokens"] == 4000
-    review_provider, review_messages = anthropic_provider(APPROVAL)
+    review_provider, review_messages = make_anthropic_provider(APPROVAL)
     await review_provider.review_trade({"plan": {}})
     assert "thinking" not in review_messages.requests[0]
     assert review_messages.requests[0]["max_tokens"] == 2000
@@ -232,6 +250,7 @@ async def test_anthropic_headline_tone_uses_its_own_instructions_and_schema():
 
 
 async def test_openai_headline_tone_request_shape():
+    """Verifies: openai headline tone request shape."""
     requests = []
 
     def handler(request):
@@ -260,6 +279,8 @@ async def test_openai_headline_tone_request_shape():
 
 
 async def test_cache_answers_repeat_headline_sets_and_misses_on_a_new_headline(tmp_path):
+    """Verifies: cache answers repeat headline sets and misses on a new headline."""
+
     class CountingLabeller:
         name = "fake:labeller"
         call_count = 0

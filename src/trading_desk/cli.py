@@ -70,6 +70,7 @@ DEFAULT_UI_DIRECTORY = Path("web/dist")
 
 
 def markdown(report: Report) -> str:
+    """Render a research report as a short Markdown document for people to read."""
     i = report.indicators
     lines = [
         f"# {report.symbol} — {report.classification}",
@@ -251,6 +252,7 @@ async def execute_desk(args) -> list[DeskReport]:
 
 
 async def execute_backtest(args) -> BacktestReport:
+    """Run the backtest described by the command-line arguments and return its report."""
     start = parse_evaluation_time(args.start)
     end = parse_evaluation_time(args.end) or datetime.now(UTC)
     async with httpx.AsyncClient() as client:
@@ -296,6 +298,12 @@ def resolve_ui_directory(args) -> Path | None:
 
 
 async def serve_desk(args, replay_settings: ReplaySettings) -> None:
+    """Start the local desk server and keep it running until interrupted.
+
+    Builds the data provider, optional journal, news feed, model provider and tone feeds from the
+    arguments, creates the session and the API (serving the built UI when one is found), and runs
+    uvicorn. On shutdown it closes the journal and prints the metered model cost.
+    """
     journal = None
     if args.journal is not None:
         args.journal.parent.mkdir(parents=True, exist_ok=True)
@@ -333,6 +341,11 @@ async def serve_desk(args, replay_settings: ReplaySettings) -> None:
 
 
 def run_serve_command(args) -> int:
+    """Validate the `desk serve` arguments and run the server. Returns the exit code.
+
+    Refuses any host that is not this machine, because the server has no login, and refuses an
+    invalid replay window, speed or equity before anything starts.
+    """
     if args.host not in LOOPBACK_HOSTS:
         print(
             "Configuration/output error: the desk server has no login and only listens on "
@@ -364,6 +377,8 @@ def run_serve_command(args) -> int:
 
 
 def describe_metrics(label: str, metrics) -> str:
+    """Format one backtest scorecard as a single line for the terminal."""
+
     def percent(value: float | None) -> str:
         return "n/a" if value is None else f"{value:+.2%}"
 
@@ -379,6 +394,9 @@ def describe_metrics(label: str, metrics) -> str:
 
 
 def add_data_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the options every data-reading command shares: source, scenario, CSV and cache folders,
+    evaluation time, output path and verbosity.
+    """
     command.add_argument("--source", choices=DATA_SOURCES, default="fixture")
     command.add_argument("--scenario", choices=["trend", "conflict", "missing"], default="trend")
     command.add_argument("--csv-dir", type=Path, help="Folder of <SYMBOL>.csv daily bars")
@@ -394,6 +412,9 @@ def add_data_arguments(command: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Define the whole command line: `analyze`, and `desk decide`, `scan`, `backtest` and `serve`
+    with their data, model, news, sentiment and equity options.
+    """
     parser = argparse.ArgumentParser(description="Research-only market intelligence desk")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -494,6 +515,10 @@ def write_output(content: str, output_path: Path | None) -> None:
 
 
 def run_backtest_command(args) -> int:
+    """Run `desk backtest`, write the report, and print the scorecards. Returns the exit code (2
+    for a
+    refused holdout or a configuration error).
+    """
     try:
         backtest_report = asyncio.run(execute_backtest(args))
         write_output(backtest_report.model_dump_json(indent=2) + "\n", args.output)
@@ -511,6 +536,9 @@ def run_backtest_command(args) -> int:
 
 
 def run_desk_command(args) -> int:
+    """Dispatch a `desk` subcommand. For `decide` and `scan` it runs the desk, writes the report or
+    reports as JSON, and prints one summary line per symbol. Returns the exit code.
+    """
     print(f"Data={args.source}; desk={args.desk_command}. Paper trading only.", file=sys.stderr)
     if args.desk_command == "backtest":
         return run_backtest_command(args)
@@ -543,6 +571,10 @@ def run_desk_command(args) -> int:
 
 
 def main() -> int:
+    """Program entry point: load `.env`, parse the arguments, run the chosen command and return its
+    exit code. Exit 0 means a valid report was produced, including an abstention; exit 2 means a
+    configuration or output error.
+    """
     load_env_file()
     parser = build_parser()
     args = parser.parse_args()

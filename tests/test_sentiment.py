@@ -24,6 +24,8 @@ BULLISH, BEARISH, NEUTRAL = (
 
 
 class FakeNewsFeed:
+    """Test double (not a test): stands in for a real newsfeed so tests control what it does."""
+
     name = "fake-news"
 
     def __init__(self, headlines):
@@ -37,7 +39,8 @@ class FakeNewsFeed:
         ]
 
 
-def numbered(tones, numbers=None):
+def make_numbered_labels(tones, numbers=None):
+    """Test helper (not a test): builds numbered labels for the tests below."""
     numbers = numbers or range(1, len(tones) + 1)
     return [
         NumberedHeadlineLabel(number=number, tone=tone)
@@ -46,6 +49,8 @@ def numbered(tones, numbers=None):
 
 
 class FakeLabeller:
+    """Test double (not a test): stands in for a real labeller so tests control what it does."""
+
     name = "fake:labeller"
 
     def __init__(self, labels):
@@ -57,8 +62,9 @@ class FakeLabeller:
 
 
 async def test_reading_counts_the_models_labels_and_says_what_it_is():
+    """Verifies: reading counts the models labels and says what it is."""
     headlines = [f"Headline {index}" for index in range(25)]
-    labeller = FakeLabeller(numbered([BULLISH] * 12 + [BEARISH] * 8 + [NEUTRAL] * 5))
+    labeller = FakeLabeller(make_numbered_labels([BULLISH] * 12 + [BEARISH] * 8 + [NEUTRAL] * 5))
     news_feed = FakeNewsFeed(headlines)
     feed = HeadlineToneFeed(news_feed, labeller)
     reading = await feed.fetch("AAPL", WEEK_AGO, AS_OF)
@@ -90,6 +96,7 @@ async def test_reading_counts_the_models_labels_and_says_what_it_is():
 
 
 async def test_no_headlines_means_no_model_call_and_a_thin_sample():
+    """Verifies: no headlines means no model call and a thin sample."""
     labeller = FakeLabeller([])
     reading = await HeadlineToneFeed(FakeNewsFeed([]), labeller).fetch("AAPL", WEEK_AGO, AS_OF)
     assert labeller.contexts == []
@@ -104,14 +111,16 @@ async def test_no_headlines_means_no_model_call_and_a_thin_sample():
     ids=["none", "one dropped", "one invented", "one repeated", "wrong number", "shifted"],
 )
 async def test_labels_that_do_not_cover_each_headline_exactly_once_are_rejected(numbers):
-    labels = numbered([NEUTRAL] * len(numbers), numbers)
+    """Verifies: labels that do not cover each headline exactly once are rejected."""
+    labels = make_numbered_labels([NEUTRAL] * len(numbers), numbers)
     feed = HeadlineToneFeed(FakeNewsFeed(["A", "B", "C"]), FakeLabeller(labels))
     with pytest.raises(ValueError, match="do not match"):
         await feed.fetch("AAPL", WEEK_AGO, AS_OF)
 
 
 async def test_labels_may_arrive_in_any_order():
-    labels = numbered([BEARISH, BULLISH, BULLISH], [3, 1, 2])
+    """Verifies: labels may arrive in any order."""
+    labels = make_numbered_labels([BEARISH, BULLISH, BULLISH], [3, 1, 2])
     reading = await HeadlineToneFeed(FakeNewsFeed(["A", "B", "C"]), FakeLabeller(labels)).fetch(
         "AAPL", WEEK_AGO, AS_OF
     )
@@ -119,7 +128,8 @@ async def test_labels_may_arrive_in_any_order():
 
 
 async def test_headline_count_is_capped_to_bound_the_cost_of_one_reading():
+    """Verifies: headline count is capped to bound the cost of one reading."""
     news_feed = FakeNewsFeed([f"Headline {index}" for index in range(100)])
-    labeller = FakeLabeller(numbered([NEUTRAL] * 5))
+    labeller = FakeLabeller(make_numbered_labels([NEUTRAL] * 5))
     await HeadlineToneFeed(news_feed, labeller, maximum_headlines=5).fetch("AAPL", WEEK_AGO, AS_OF)
     assert len(labeller.contexts[0]["headlines"]) == 5

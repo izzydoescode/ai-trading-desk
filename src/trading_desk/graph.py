@@ -158,6 +158,14 @@ def build_graph(
     llm: ReasoningProvider | None = None,
     market_profile: MarketProfile = US_EQUITIES,
 ):
+    """Assemble the research graph: market data, then the technical thesis and the quality audit in
+    parallel, then the contrarian review, then synthesis.
+
+    Each reasoning step computes a rule-based answer first. With no model that answer stands; with
+    a model, the model's answer replaces it only if it validates and cites exact indicator values,
+    and an abstaining baseline skips the model call.
+    """
+
     def trace(
         state: State,
         agent: str,
@@ -191,6 +199,10 @@ def build_graph(
         }
 
     async def reason(state: State, role: str, fallback: Analysis):
+        """Run one reasoning role: return the rule-based result, or ask the model and accept its
+        answer only if it validates and every cited number matches the computed indicator. Any
+        model failure becomes a recorded abstention, never a silent fallback to the rules.
+        """
         start, error = perf_counter(), None
         if llm is None:
             result = fallback
@@ -238,6 +250,11 @@ def build_graph(
         )
 
     async def decider(state: State):
+        """Synthesis step: reconcile the two analyses, then re-impose policy over any model
+        answer. A
+        baseline abstention stands, and a bullish-versus-bearish conflict may only be NEUTRAL or
+        INSUFFICIENT_DATA.
+        """
         baseline = synthesis.synthesize(state["technical"], state["contrarian"], state["blockers"])
         update = await reason(state, "synthesis", baseline)
         # Deterministic constraints have authority over every model, including synthesis.
@@ -280,6 +297,9 @@ async def run_research(
     as_of: datetime | None = None,
     market_profile: MarketProfile = US_EQUITIES,
 ) -> Report:
+    """Run the research workflow for one symbol and return the typed report, including any dissent
+    between the technical and contrarian views.
+    """
     symbol, as_of = validate_request(symbol, as_of)
     state = await build_graph(data_provider, llm, market_profile).ainvoke(
         {"run_id": str(uuid4()), "symbol": symbol, "as_of": as_of, "trace": []}

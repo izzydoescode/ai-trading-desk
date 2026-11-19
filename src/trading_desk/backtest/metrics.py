@@ -19,6 +19,11 @@ DECISION_KINDS = ("TRADE", "WAIT", "REJECT")
 
 
 class PerformanceMetrics(Model):
+    """The scorecard for one backtest window: return against the benchmark, drawdown, Sharpe ratio,
+    trade statistics, costs, and counts of every exit, decision and rejection reason. Statistics
+    that cannot be computed (no trades, no losses) are None, never zero.
+    """
+
     start: datetime | None
     end: datetime | None
     bars: int
@@ -87,6 +92,13 @@ def compute_metrics(
     market_profile: MarketProfile,
     benchmark_candles: Sequence[Candle] = (),
 ) -> PerformanceMetrics:
+    """Turn an engine run into a `PerformanceMetrics` scorecard.
+
+    Computes total return, maximum drawdown and annualised Sharpe from the equity curve; win rate,
+    profit factor, expectancy and average win and loss in R from the closed trades; exposure as the
+    share of bars with an open position; and tallies of exits, decisions and rejection reasons from
+    the event log. The benchmark return is buy-and-hold over the same window.
+    """
     equity_curve = engine_result.equity_curve
     equity_values = [engine_result.starting_equity] + [point.equity for point in equity_curve]
     start = equity_curve[0].timestamp if equity_curve else None

@@ -72,6 +72,14 @@ class ReplaySettings(Model):
 
 
 class DeskSession:
+    """One desk the terminal can watch and steer: a paper venue and at most one replay.
+
+    It runs the engine as a paced replay, keeps the latest state (bars, reports, equity curve,
+    journal lines, account) for snapshots, and publishes every change to subscribers as plain JSON.
+    Controls: start, pause, resume, speed, stop and the kill switch. It paces and halts; it never
+    changes a decision.
+    """
+
     def __init__(
         self,
         data_provider: MarketDataProvider,
@@ -85,6 +93,10 @@ class DeskSession:
         news_tone_feed: SentimentFeed | None = None,
         sleep: Sleeper = asyncio.sleep,
     ):
+        """Create an idle session bound to its data provider, market, limits, setup rules and
+        optional
+        journal and feeds. `sleep` is injectable so tests can run a replay instantly.
+        """
         self.data_provider = data_provider
         self.news_feed = news_feed
         self.sentiment_feed = sentiment_feed
@@ -154,6 +166,9 @@ class DeskSession:
         }
 
     def _account_fields(self) -> dict | None:
+        """The account as the terminal shows it: starting cash, equity, cash, open risk, open
+        positions, queued symbols and closed trades. None before a replay has started.
+        """
         if self.venue is None:
             return None
         return {
@@ -199,6 +214,9 @@ class DeskSession:
         return self.status in {SessionStatus.RUNNING, SessionStatus.PAUSED}
 
     async def start(self, settings: ReplaySettings) -> None:
+        """Begin a new replay with a fresh paper account. Refuses if one is already running. If the
+        kill switch is engaged the venue starts halted and the halt is journalled.
+        """
         if self.is_active:
             raise SessionBusyError("a replay is already running")
         self._reset_run_state()
@@ -261,6 +279,10 @@ class DeskSession:
     # -- the run -----------------------------------------------------------
 
     async def _run(self, settings: ReplaySettings, venue: PaperVenue) -> None:
+        """Run the engine to the end of the replay and set the final status: FINISHED, IDLE if it
+        was
+        stopped, or FAILED with only the exception's class name.
+        """
         try:
             await run_engine(
                 settings.symbols,
@@ -297,6 +319,7 @@ class DeskSession:
         self._publish({"type": "event", "event": event_fields})
 
     def _publish_control_event(self, venue_event: VenueEvent) -> None:
+        """Publish a venue event raised by a control (such as the kill switch) as a journal line."""
         event_fields = {
             "run_id": self.run_id,
             "sequence": None,
@@ -311,6 +334,9 @@ class DeskSession:
         self._publish({"type": "event", "event": event_fields})
 
     async def _on_bar(self, bar_update: BarUpdate) -> None:
+        """Per-bar hook: store the bar's candles, equity point and reports, publish them, then wait
+        for the pacing delay and for any pause to end.
+        """
         self.bar_index, self.bar_count = bar_update.bar_index, bar_update.bar_count
         self.bar_time = bar_update.bar_time
         equity_fields = bar_update.equity_point.model_dump(mode="json")

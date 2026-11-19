@@ -5,6 +5,13 @@ from trading_desk.models import Analysis, Classification, Indicators
 
 
 def review(i: Indicators, thesis: Analysis, blockers: list[str]) -> Analysis:
+    """Challenge the technical thesis independently and return the counter-case.
+
+    Abstains when the data is blocked or the thesis abstained. Otherwise it reads momentum (RSI14
+    at or above 70 is a bearish counter-scenario, at or below 30 a bullish one) and lists the risks
+    the thesis ignores. It may disagree with the thesis; that disagreement is kept, not resolved
+    here.
+    """
     if blockers or thesis.abstain:
         return abstention("; ".join(blockers) or "Initial thesis lacks sufficient evidence.")
     risks = [

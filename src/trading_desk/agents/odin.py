@@ -33,6 +33,17 @@ def evaluate(
     market_profile: MarketProfile,
     blockers: list[str],
 ) -> RiskReport:
+    """Run every risk check on NEO's chart report and return ODIN's verdict.
+
+    Checks, in order: kill switch, data quality, open ideas, daily loss budget (realised losses
+    plus open stop risk), a setup with an invalidation level, reward to risk after trading costs,
+    position size, max loss per idea, and no leverage. Position size is the smaller of what the
+    risk budget allows and what the position cap and cash allow, rounded down.
+
+    APPROVE needs every check to pass and returns the sized plan. REVISE is returned only when
+    reward to risk is the sole failure. Anything else is REJECT. The verdict is final: no later
+    agent or model can overturn it.
+    """
     setup = chart.setup
     checks = [
         RiskCheck(

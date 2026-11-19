@@ -18,7 +18,8 @@ NOW = datetime(2025, 6, 2, 12, tzinfo=UTC)  # a Monday, well after the weeks und
 WEDNESDAY = datetime(2025, 3, 12, 21, tzinfo=UTC)
 
 
-def finnhub_entry(published_at, headline="Apple ships a thing", source="Reuters", **overrides):
+def make_finnhub_entry(published_at, headline="Apple ships a thing", source="Reuters", **overrides):
+    """Test helper (not a test): builds finnhub entry for the tests below."""
     return {
         "category": "company",
         "datetime": int(published_at.timestamp()),
@@ -34,8 +35,9 @@ def finnhub_entry(published_at, headline="Apple ships a thing", source="Reuters"
 
 
 class FakeFinnhub:
-    """Answers company-news requests from a list of entries, like the real endpoint:
-    only entries inside the requested from/to dates are returned."""
+    """Test double (not a test): answers company-news requests from a list of entries, like the
+    real endpoint: only entries inside the requested from/to dates are returned.
+    """
 
     def __init__(self, entries, failures_before_success=0, failure_status=500):
         self.entries, self.requests = entries, []
@@ -61,6 +63,7 @@ class FakeFinnhub:
 
 
 def make_feed(fake_finnhub, cache_directory=None, clock_time=NOW, **options):
+    """Test helper (not a test): builds feed for the tests below."""
     waits = []
 
     async def record_wait(seconds):
@@ -74,13 +77,14 @@ def make_feed(fake_finnhub, cache_directory=None, clock_time=NOW, **options):
 
 
 async def test_fetch_returns_only_what_was_published_inside_the_window_newest_first():
+    """Verifies: fetch returns only what was published inside the window newest first."""
     fake_finnhub = FakeFinnhub(
         [
-            finnhub_entry(WEDNESDAY - timedelta(days=9), "Too old"),
-            finnhub_entry(WEDNESDAY - timedelta(days=6), "Last week"),
-            finnhub_entry(WEDNESDAY - timedelta(hours=3), "This morning"),
-            finnhub_entry(WEDNESDAY + timedelta(hours=1), "Not published yet"),
-            finnhub_entry(WEDNESDAY + timedelta(days=2), "Later this week"),
+            make_finnhub_entry(WEDNESDAY - timedelta(days=9), "Too old"),
+            make_finnhub_entry(WEDNESDAY - timedelta(days=6), "Last week"),
+            make_finnhub_entry(WEDNESDAY - timedelta(hours=3), "This morning"),
+            make_finnhub_entry(WEDNESDAY + timedelta(hours=1), "Not published yet"),
+            make_finnhub_entry(WEDNESDAY + timedelta(days=2), "Later this week"),
         ]
     )
     feed, _ = make_feed(fake_finnhub)
@@ -96,6 +100,7 @@ async def test_fetch_returns_only_what_was_published_inside_the_window_newest_fi
 
 
 async def test_key_travels_in_a_header_and_never_in_the_url():
+    """Verifies: key travels in a header and never in the url."""
     fake_finnhub = FakeFinnhub([])
     feed, _ = make_feed(fake_finnhub)
     await feed.fetch("AAPL", WEDNESDAY, WEDNESDAY)
@@ -106,11 +111,12 @@ async def test_key_travels_in_a_header_and_never_in_the_url():
 
 
 async def test_duplicates_are_dropped_and_the_result_is_capped():
+    """Verifies: duplicates are dropped and the result is capped."""
     entries = [
-        finnhub_entry(WEDNESDAY - timedelta(minutes=minute), f"Headline {minute}")
+        make_finnhub_entry(WEDNESDAY - timedelta(minutes=minute), f"Headline {minute}")
         for minute in range(30)
     ]
-    entries.append(finnhub_entry(WEDNESDAY - timedelta(minutes=40), "HEADLINE 0"))
+    entries.append(make_finnhub_entry(WEDNESDAY - timedelta(minutes=40), "HEADLINE 0"))
     feed, _ = make_feed(FakeFinnhub(entries))
     news_items = await feed.fetch("AAPL", WEDNESDAY - timedelta(days=1), WEDNESDAY)
     assert len(news_items) == MAXIMUM_ITEMS_PER_FETCH
@@ -119,11 +125,14 @@ async def test_duplicates_are_dropped_and_the_result_is_capped():
 
 
 async def test_opinion_outlets_are_marked_as_commentary():
+    """Verifies: opinion outlets are marked as commentary."""
     feed, _ = make_feed(
         FakeFinnhub(
             [
-                finnhub_entry(WEDNESDAY - timedelta(hours=1), "Why it will moon", "SeekingAlpha"),
-                finnhub_entry(WEDNESDAY - timedelta(hours=2), "Earnings date set", "CNBC"),
+                make_finnhub_entry(
+                    WEDNESDAY - timedelta(hours=1), "Why it will moon", "SeekingAlpha"
+                ),
+                make_finnhub_entry(WEDNESDAY - timedelta(hours=2), "Earnings date set", "CNBC"),
             ]
         )
     )
@@ -135,7 +144,8 @@ async def test_opinion_outlets_are_marked_as_commentary():
 
 
 async def test_finished_weeks_are_cached_on_disk_and_the_current_week_is_not(tmp_path):
-    fake_finnhub = FakeFinnhub([finnhub_entry(WEDNESDAY - timedelta(hours=1), "Cached item")])
+    """Verifies: finished weeks are cached on disk and the current week is not."""
+    fake_finnhub = FakeFinnhub([make_finnhub_entry(WEDNESDAY - timedelta(hours=1), "Cached item")])
     feed, _ = make_feed(fake_finnhub, tmp_path)
     await feed.fetch("AAPL", WEDNESDAY - timedelta(days=1), WEDNESDAY)
     await feed.fetch("AAPL", WEDNESDAY - timedelta(days=1), WEDNESDAY)
@@ -162,6 +172,7 @@ async def test_finished_weeks_are_cached_on_disk_and_the_current_week_is_not(tmp
 
 
 async def test_requests_are_spaced_to_respect_the_rate_limit():
+    """Verifies: requests are spaced to respect the rate limit."""
     feed, waits = make_feed(FakeFinnhub([]), minimum_request_interval_seconds=1.1)
     await feed.fetch("AAPL", WEDNESDAY - timedelta(days=20), WEDNESDAY)  # four weeks
     assert waits == [1.1, 1.1, 1.1]
@@ -169,8 +180,9 @@ async def test_requests_are_spaced_to_respect_the_rate_limit():
 
 @pytest.mark.parametrize("failure_status", [429, 500, 503])
 async def test_rate_limit_and_server_errors_are_retried(failure_status):
+    """Verifies: rate limit and server errors are retried."""
     fake_finnhub = FakeFinnhub(
-        [finnhub_entry(WEDNESDAY - timedelta(hours=1))],
+        [make_finnhub_entry(WEDNESDAY - timedelta(hours=1))],
         failures_before_success=2,
         failure_status=failure_status,
     )
@@ -182,6 +194,7 @@ async def test_rate_limit_and_server_errors_are_retried(failure_status):
 
 
 async def test_persistent_failures_and_client_errors_raise():
+    """Verifies: persistent failures and client errors raise."""
     always_failing, _ = make_feed(
         FakeFinnhub([], failures_before_success=9), minimum_request_interval_seconds=0
     )
@@ -195,6 +208,7 @@ async def test_persistent_failures_and_client_errors_raise():
 
 
 async def test_transport_errors_are_retried_then_raised():
+    """Verifies: transport errors are retried then raised."""
     attempts = []
 
     def unreachable(request):
@@ -209,13 +223,15 @@ async def test_transport_errors_are_retried_then_raised():
 
 
 async def test_backwards_window_is_rejected():
+    """Verifies: backwards window is rejected."""
     feed, _ = make_feed(FakeFinnhub([]))
     with pytest.raises(ValueError, match="ends before it starts"):
         await feed.fetch("AAPL", WEDNESDAY, WEDNESDAY - timedelta(days=1))
 
 
 def test_unusable_entries_are_dropped_not_invented():
-    good = finnhub_entry(WEDNESDAY)
+    """Verifies: unusable entries are dropped not invented."""
+    good = make_finnhub_entry(WEDNESDAY)
     news_items = parse_finnhub_items(
         [
             good,
@@ -240,6 +256,7 @@ def test_unusable_entries_are_dropped_not_invented():
 
 
 def test_weeks_start_on_monday():
+    """Verifies: weeks start on monday."""
     assert monday_of(WEDNESDAY.date()).isoformat() == "2025-03-10"
     assert monday_of(datetime(2025, 3, 10).date()).isoformat() == "2025-03-10"
     assert monday_of(datetime(2025, 3, 16).date()).isoformat() == "2025-03-10"

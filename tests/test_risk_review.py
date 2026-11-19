@@ -7,6 +7,7 @@ from trading_desk.tools.market_data import FixtureProvider
 
 
 async def test_counter_evidence_is_retained():
+    """Verifies: counter evidence is retained."""
     r = await run_research("AAPL", FixtureProvider("conflict"), as_of=AS_OF)
     assert r.technical.classification == Classification.BULLISH
     assert r.contrarian.classification == Classification.BEARISH
@@ -16,6 +17,10 @@ async def test_counter_evidence_is_retained():
 
 
 class MalformedLLM:
+    """Test double (not a test): stands in for a real malformedllm so the tests control its
+    behaviour.
+    """
+
     name = "malformed-test-provider"
 
     async def reason(self, role, context):
@@ -23,6 +28,7 @@ class MalformedLLM:
 
 
 async def test_invalid_llm_output_fails_closed():
+    """Verifies: invalid llm output fails closed."""
     r = await run_research("AAPL", FixtureProvider(), MalformedLLM(), AS_OF)
     assert r.mode == "llm"
     assert r.abstained
@@ -31,6 +37,10 @@ async def test_invalid_llm_output_fails_closed():
 
 
 class UngroundedLLM:
+    """Test double (not a test): stands in for a real ungroundedllm so the tests control its
+    behaviour.
+    """
+
     name = "ungrounded-test-provider"
 
     async def reason(self, role, context):
@@ -44,12 +54,17 @@ class UngroundedLLM:
 
 
 async def test_fabricated_measurements_rejected():
+    """Verifies: fabricated measurements rejected."""
     r = await run_research("AAPL", FixtureProvider(), UngroundedLLM(), AS_OF)
     assert r.abstained
     assert not r.technical.evidence
 
 
 class OverridingLLM:
+    """Test double (not a test): stands in for a real overridingllm so the tests control its
+    behaviour.
+    """
+
     name = "policy-test-provider"
 
     async def reason(self, role, context):
@@ -69,12 +84,14 @@ class OverridingLLM:
 
 
 async def test_synthesis_cannot_override_directional_conflict():
+    """Verifies: synthesis cannot override directional conflict."""
     r = await run_research("AAPL", FixtureProvider(), OverridingLLM(), AS_OF)
     assert r.classification == Classification.NEUTRAL
     assert r.trace[-1].status == "degraded"
 
 
 async def test_bad_data_skips_downstream_model_spend():
+    """Verifies: bad data skips downstream model spend."""
     r = await run_research("AAPL", FixtureProvider("missing"), MalformedLLM(), AS_OF)
     assert r.abstained
     assert all(
@@ -85,6 +102,8 @@ async def test_bad_data_skips_downstream_model_spend():
 
 
 class RecordingLLM:
+    """Test double (not a test): stands in for a real llm so tests control what it does."""
+
     name = "recording-test-provider"
 
     def __init__(self):
@@ -107,6 +126,7 @@ class RecordingLLM:
 
 
 async def test_llm_roles_receive_explicit_dependencies():
+    """Verifies: llm roles receive explicit dependencies."""
     llm = RecordingLLM()
     r = await run_research("AAPL", FixtureProvider(), llm, AS_OF)
     assert r.mode == "llm"
@@ -123,6 +143,7 @@ async def test_llm_roles_receive_explicit_dependencies():
 
 
 def test_long_valid_agent_summaries_do_not_break_reconciliation():
+    """Verifies: long valid agent summaries do not break reconciliation."""
     from trading_desk.agents.synthesis import synthesize
 
     t = Analysis(

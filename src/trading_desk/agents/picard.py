@@ -28,6 +28,14 @@ def decide(
     sentiment_report: SentimentReport,
     risk_report: RiskReport,
 ) -> Decision:
+    """Combine the five reports into one decision: TRADE, WAIT or REJECT.
+
+    ODIN's REJECT is final and its REVISE becomes WAIT. An approved idea still waits if HAWKEYE has
+    not rated the symbol WATCH (a Bollinger reversion instead needs usable data and no heavy-volume
+    breakdown), if NEO's own counter-case is bearish, if SNOWDEN reports bearish news, or if FAMA
+    reports high hype risk. Otherwise the decision is TRADE and carries ODIN's plan unchanged.
+    Disagreement between agents is always recorded as dissent.
+    """
     sources = [
         f"HAWKEYE {scout_report.verdict}",
         f"NEO thesis {chart.thesis.classification}",

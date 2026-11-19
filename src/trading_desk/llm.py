@@ -132,6 +132,11 @@ class UsageMeter:
 
 
 class OpenAIProvider:
+    """OpenAI through the Responses API over httpx, with strict structured output. One stateless
+    call
+    per task; nothing is stored. Retries transport errors, HTTP 429 and 5xx up to three times.
+    """
+
     def __init__(
         self,
         api_key: str,
@@ -159,6 +164,11 @@ class OpenAIProvider:
         schema_model: type[StructuredModel],
         schema_name: str,
     ) -> StructuredModel:
+        """Send one request and return the reply validated against `schema_model`.
+
+        Checks the spending cap first, retries transport errors, 429 and 5xx with backoff, records
+        token usage, and raises if the response is incomplete or does not match the schema.
+        """
         self.usage_meter.check_budget()
         for attempt in range(3):
             try:
@@ -249,6 +259,12 @@ class AnthropicProvider:
         schema_model: type[StructuredModel],
         **request_options,
     ) -> StructuredModel:
+        """Send one request through the Anthropic SDK and return the parsed, validated reply.
+
+        Checks the spending cap first and records token usage. A refusal, a truncated reply or a
+        missing parse raises, so the caller records an abstention instead of using a partial
+        answer.
+        """
         self.usage_meter.check_budget()
         response = await self.client.messages.parse(
             **{
@@ -309,6 +325,9 @@ class CachingReasoningProvider:
         )
 
     async def _cached(self, task: str, context: dict, schema_model, call_provider):
+        """Return the stored answer for this exact provider, prompt version, task and input, or call
+        the model and store its answer. Failures are never stored and a corrupt entry is replaced.
+        """
         fingerprint = hashlib.sha256(
             json.dumps(
                 [self.name, PROMPT_VERSION, task, context], sort_keys=True, default=str

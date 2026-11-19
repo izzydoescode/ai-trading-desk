@@ -28,6 +28,12 @@ class SentimentReading(Model):
 
 
 def report(sentiment_reading: SentimentReading | None) -> SentimentReport:
+    """Turn a sentiment reading into FAMA's report: mood score, hype risk and verdict.
+
+    Abstains with no reading, or when fewer than 20 items were counted or none lean either way.
+    Mood is the bullish share of directional items (0-100). A bullish share of 85% or more is HIGH
+    hype risk and 70% or more is MEDIUM: one-sided optimism raises caution, not conviction.
+    """
     if sentiment_reading is None:
         return SentimentReport(
             verdict=Classification.INSUFFICIENT_DATA,

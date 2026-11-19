@@ -22,15 +22,18 @@ OTHER_SITE_ORIGIN = "https://evil.example"
 
 
 async def yield_once(seconds):
+    """Test helper (not a test): yield once."""
     await asyncio.sleep(0)
 
 
 async def short_real_wait(seconds):
+    """Test helper (not a test): short real wait."""
     await asyncio.sleep(0.01)
 
 
 @pytest.fixture
 def client():
+    """Test fixture (not a test): provides client to the tests that ask for it."""
     desk_session = DeskSession(FixtureProvider(), sleep=yield_once)
     with TestClient(create_app(desk_session, DEFAULT_SETTINGS)) as test_client:
         yield test_client
@@ -38,13 +41,16 @@ def client():
 
 @pytest.fixture
 def slow_client():
-    """A replay slow enough (about a second) to be paused and steered over HTTP."""
+    """Test helper (not a test): A replay slow enough (about a second) to be paused and steered over
+    HTTP.
+    """
     desk_session = DeskSession(FixtureProvider(), sleep=short_real_wait)
     with TestClient(create_app(desk_session, DEFAULT_SETTINGS)) as test_client:
         yield test_client
 
 
 def wait_for_status(test_client, expected_status, timeout_seconds=15.0):
+    """Test helper (not a test): wait for status."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         state = test_client.get("/api/state").json()
@@ -55,6 +61,7 @@ def wait_for_status(test_client, expected_status, timeout_seconds=15.0):
 
 
 def test_health_and_idle_state(client):
+    """Verifies: health and idle state."""
     assert client.get("/api/health").json() == {"status": "ok", "venue": "paper", "mode": "replay"}
     state = client.get("/api/state").json()
     assert state["type"] == "snapshot"
@@ -66,6 +73,7 @@ def test_health_and_idle_state(client):
 
 
 def test_replay_runs_from_start_request_to_finished_state(client):
+    """Verifies: replay runs from start request to finished state."""
     response = client.post("/api/replay/start", json={})
     assert response.status_code == 202
     assert response.json()["status"] == "RUNNING"
@@ -86,6 +94,7 @@ def test_replay_runs_from_start_request_to_finished_state(client):
 
 
 def test_pause_resume_speed_and_stop_over_http(slow_client):
+    """Verifies: pause resume speed and stop over http."""
     assert slow_client.post("/api/replay/start", json={}).status_code == 202
     paused = slow_client.post("/api/replay/pause")
     assert (paused.status_code, paused.json()["status"]) == (200, "PAUSED")
@@ -104,6 +113,7 @@ def test_pause_resume_speed_and_stop_over_http(slow_client):
 
 
 def test_pause_and_resume_without_a_run_are_conflicts(client):
+    """Verifies: pause and resume without a run are conflicts."""
     assert client.post("/api/replay/pause").status_code == 409
     assert client.post("/api/replay/resume").status_code == 409
     assert client.post("/api/replay/stop").json()["status"] == "IDLE"
@@ -125,11 +135,13 @@ def test_pause_and_resume_without_a_run_are_conflicts(client):
     ],
 )
 def test_bad_requests_are_rejected_and_nothing_starts(client, path, body):
+    """Verifies: bad requests are rejected and nothing starts."""
     assert client.post(path, json=body).status_code == 422
     assert client.get("/api/state").json()["status"] == "IDLE"
 
 
 def test_kill_switch_over_http_blocks_every_idea(client):
+    """Verifies: kill switch over http blocks every idea."""
     engaged = client.post("/api/kill-switch", json={"engaged": True})
     assert engaged.json()["kill_switch_engaged"] is True
     client.post("/api/replay/start", json={})
@@ -141,6 +153,7 @@ def test_kill_switch_over_http_blocks_every_idea(client):
 
 
 def test_live_mode_is_refused_and_replay_mode_is_a_no_op(client):
+    """Verifies: live mode is refused and replay mode is a no op."""
     live = client.post("/api/mode", json={"mode": "live"})
     assert live.status_code == 501
     assert "paper venue" in live.json()["detail"]
@@ -149,6 +162,7 @@ def test_live_mode_is_refused_and_replay_mode_is_a_no_op(client):
 
 
 def test_writes_from_another_site_are_refused(client):
+    """Verifies: writes from another site are refused."""
     refused = client.post("/api/replay/start", json={}, headers={"origin": OTHER_SITE_ORIGIN})
     assert refused.status_code == 403
     assert client.get("/api/state").json()["status"] == "IDLE"
@@ -160,6 +174,7 @@ def test_writes_from_another_site_are_refused(client):
 
 
 def test_local_ui_origin_is_allowed_and_other_sites_get_no_cors_grant(client):
+    """Verifies: local ui origin is allowed and other sites get no cors grant."""
     allowed = client.post(
         "/api/kill-switch", json={"engaged": False}, headers={"origin": LOCAL_UI_ORIGIN}
     )
@@ -194,10 +209,12 @@ def test_local_ui_origin_is_allowed_and_other_sites_get_no_cors_grant(client):
     ],
 )
 def test_only_pages_on_this_machine_are_trusted(origin, trusted):
+    """Verifies: only pages on this machine are trusted."""
     assert is_trusted_origin(origin) is trusted
 
 
 def test_websocket_streams_a_snapshot_then_the_whole_replay(client):
+    """Verifies: websocket streams a snapshot then the whole replay."""
     with client.websocket_connect("/ws/events", headers={"origin": LOCAL_UI_ORIGIN}) as socket:
         first_message = socket.receive_json()
         assert (first_message["type"], first_message["status"]) == ("snapshot", "IDLE")
@@ -218,6 +235,7 @@ def test_websocket_streams_a_snapshot_then_the_whole_replay(client):
 
 
 def test_websocket_from_another_site_is_closed_before_any_data(client):
+    """Verifies: websocket from another site is closed before any data."""
     with pytest.raises(WebSocketDisconnect) as disconnect:
         with client.websocket_connect("/ws/events", headers={"origin": OTHER_SITE_ORIGIN}):
             pass
@@ -226,6 +244,7 @@ def test_websocket_from_another_site_is_closed_before_any_data(client):
 
 
 def test_backtest_endpoint_scores_in_sample_only(client):
+    """Verifies: backtest endpoint scores in sample only."""
     response = client.get("/api/backtest")
     assert response.status_code == 200
     backtest_report = response.json()
@@ -248,10 +267,12 @@ def test_backtest_endpoint_scores_in_sample_only(client):
     ],
 )
 def test_backtest_endpoint_rejects_bad_windows(client, query):
+    """Verifies: backtest endpoint rejects bad windows."""
     assert client.get("/api/backtest", params=query).status_code == 422
 
 
 def test_built_terminal_is_served_at_the_root_without_hiding_the_api(tmp_path):
+    """Verifies: built terminal is served at the root without hiding the api."""
     (tmp_path / "assets").mkdir()
     (tmp_path / "index.html").write_text("<!doctype html><title>AI Trading Desk</title>")
     (tmp_path / "assets" / "app.js").write_text("console.log('desk')")
@@ -269,6 +290,7 @@ def test_built_terminal_is_served_at_the_root_without_hiding_the_api(tmp_path):
 
 
 def test_a_ui_directory_without_a_build_is_refused(tmp_path):
+    """Verifies: a ui directory without a build is refused."""
     desk_session = DeskSession(FixtureProvider(), sleep=yield_once)
     with pytest.raises(ValueError, match="index.html"):
         create_app(desk_session, DEFAULT_SETTINGS, tmp_path)

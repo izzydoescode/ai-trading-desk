@@ -18,6 +18,12 @@ def evidence(i: Indicators, *metrics: str) -> list[Evidence]:
 
 
 def analyze(i: Indicators) -> Analysis:
+    """Form the technical thesis from moving averages.
+
+    BULLISH when the close is above SMA20 above SMA50, BEARISH when it is below both in the
+    opposite order, NEUTRAL otherwise. Abstains when any of the three measurements is unavailable.
+    Evidence cites the exact indicator values.
+    """
     if i.sma50 is None or i.close is None or i.sma20 is None:
         return abstention("Need at least 50 valid daily candles for SMA50 and trend assessment.")
     bullish = i.close > i.sma20 > i.sma50

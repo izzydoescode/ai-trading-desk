@@ -67,6 +67,10 @@ def day_change_percent(closes: list[float]) -> float | None:
 
 
 def calculate(candles: list[Candle]) -> Indicators:
+    """Compute every indicator from the bars: SMA20 and SMA50, Wilder RSI14 and ATR14, 20-session
+    return, relative volume, the 20-session range, the latest and prior day's range, prior 20, 55
+    and 252-session extremes, and Bollinger bands. Anything without enough history is None.
+    """
     closes = [c.close for c in candles]
     changes = [b - a for a, b in zip(closes, closes[1:], strict=False)]
     gain = wilder([max(c, 0) for c in changes], 14)

@@ -19,6 +19,10 @@ class Classification(StrEnum):
 
 
 class Candle(Model):
+    """One daily price bar. Rejects non-finite numbers, non-positive prices, negative volume and a
+    high or low that does not bound the open and close.
+    """
+
     timestamp: AwareDatetime
     open: float = Field(gt=0)
     high: float = Field(gt=0)
@@ -36,6 +40,10 @@ class Candle(Model):
 
 
 class MarketData(Model):
+    """A symbol's bars and where they came from. Bars must be unique and strictly chronological;
+    provider errors travel with the data instead of being raised.
+    """
+
     symbol: str
     source: str
     interval: Literal["1d"] = "1d"
@@ -53,6 +61,10 @@ class MarketData(Model):
 
 
 class Indicators(Model):
+    """Every number the desk is allowed to cite, computed from the bars by code. A value that cannot
+    be computed from the available history is None, never zero or an estimate.
+    """
+
     candle_count: int
     close: float | None = None
     sma20: float | None = None
@@ -111,6 +123,12 @@ class Evidence(Model):
 
 
 class Analysis(Model):
+    """One agent's written view: a classification, a summary, the exact measurements it relies on
+    and
+    the risks it sees. Abstaining and INSUFFICIENT_DATA always go together, and a view that does
+    not abstain must cite evidence.
+    """
+
     classification: Classification
     summary: str = Field(min_length=1, max_length=3000)
     evidence: list[Evidence]
@@ -136,6 +154,11 @@ class Trace(Model):
 
 
 class Report(Model):
+    """The research workflow's output for one symbol: data, indicators, the technical, contrarian
+    and
+    synthesis views, the final classification, limitations, dissent and the trace.
+    """
+
     schema_version: Literal["1.0"] = "1.0"
     run_id: str
     symbol: str

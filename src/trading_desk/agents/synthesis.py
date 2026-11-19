@@ -5,6 +5,11 @@ from trading_desk.models import Analysis, Classification
 
 
 def synthesize(technical: Analysis, contrarian: Analysis, blockers: list[str]) -> Analysis:
+    """Reconcile the technical thesis and the contrarian review into one research verdict.
+
+    Abstains when either side abstains or the data is blocked. A direct BULLISH versus BEARISH
+    conflict is reported as NEUTRAL, never averaged or silently resolved in one side's favour.
+    """
     if blockers or technical.abstain or contrarian.abstain:
         return abstention("; ".join(blockers) or "A required analysis abstained.")
     conflict = {technical.classification, contrarian.classification} == {

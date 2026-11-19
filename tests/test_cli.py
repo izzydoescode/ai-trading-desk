@@ -8,6 +8,7 @@ import pytest
 
 
 def test_cli_outputs_valid_json_and_markdown(tmp_path):
+    """Verifies: cli outputs valid json and markdown."""
     output, markdown = tmp_path / "r.json", tmp_path / "r.md"
     result = subprocess.run(
         [
@@ -33,6 +34,7 @@ def test_cli_outputs_valid_json_and_markdown(tmp_path):
 
 
 def test_cli_requires_explicit_llm_credentials():
+    """Verifies: cli requires explicit llm credentials."""
     env = dict(os.environ)
     env.pop("OPENAI_API_KEY", None)
     result = subprocess.run(
@@ -50,7 +52,9 @@ HISTORICAL_EVALUATION_TIME = "2025-04-23T22:00:00Z"
 
 
 def run_cli_in_process(monkeypatch, *arguments):
-    """Call the CLI entry point directly so coverage sees it, returning its exit code."""
+    """Test helper (not a test): call the CLI entry point directly so coverage sees it, returning
+    its exit code.
+    """
     from trading_desk import cli
 
     monkeypatch.setattr(sys, "argv", ["trading-desk", *arguments])
@@ -58,6 +62,7 @@ def run_cli_in_process(monkeypatch, *arguments):
 
 
 def test_main_prints_report_json_to_stdout(monkeypatch, capsys):
+    """Verifies: main prints report json to stdout."""
     exit_code = run_cli_in_process(
         monkeypatch, "analyze", "AAPL", "--as-of", HISTORICAL_EVALUATION_TIME
     )
@@ -70,6 +75,7 @@ def test_main_prints_report_json_to_stdout(monkeypatch, capsys):
 
 
 def test_main_writes_json_and_markdown_files(monkeypatch, tmp_path, capsys):
+    """Verifies: main writes json and markdown files."""
     json_path, markdown_path = tmp_path / "report.json", tmp_path / "report.md"
     exit_code = run_cli_in_process(
         monkeypatch,
@@ -94,6 +100,7 @@ def test_main_writes_json_and_markdown_files(monkeypatch, tmp_path, capsys):
 
 
 def test_main_reports_abstention_with_exit_zero(monkeypatch, capsys):
+    """Verifies: main reports abstention with exit zero."""
     exit_code = run_cli_in_process(
         monkeypatch,
         "analyze",
@@ -108,6 +115,7 @@ def test_main_reports_abstention_with_exit_zero(monkeypatch, capsys):
 
 
 def test_main_rejects_llm_mode_without_api_key(monkeypatch, capsys):
+    """Verifies: main rejects llm mode without api key."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     exit_code = run_cli_in_process(monkeypatch, "analyze", "AAPL", "--mode", "llm")
     captured = capsys.readouterr()
@@ -117,6 +125,7 @@ def test_main_rejects_llm_mode_without_api_key(monkeypatch, capsys):
 
 
 def test_main_rejects_external_data_without_api_key(monkeypatch, capsys):
+    """Verifies: main rejects external data without api key."""
     monkeypatch.delenv("ALPHAVANTAGE_API_KEY", raising=False)
     exit_code = run_cli_in_process(monkeypatch, "analyze", "AAPL", "--source", "alpha-vantage")
     assert exit_code == 2
@@ -124,6 +133,7 @@ def test_main_rejects_external_data_without_api_key(monkeypatch, capsys):
 
 
 def test_main_returns_error_when_output_path_is_unwritable(monkeypatch, tmp_path, capsys):
+    """Verifies: main returns error when output path is unwritable."""
     missing_directory_path = tmp_path / "no-such-directory" / "report.json"
     exit_code = run_cli_in_process(
         monkeypatch,
@@ -139,6 +149,7 @@ def test_main_returns_error_when_output_path_is_unwritable(monkeypatch, tmp_path
 
 
 def test_scenario_flag_is_rejected_for_external_data(monkeypatch, capsys):
+    """Verifies: scenario flag is rejected for external data."""
     with pytest.raises(SystemExit) as exit_info:
         run_cli_in_process(
             monkeypatch,
@@ -154,6 +165,7 @@ def test_scenario_flag_is_rejected_for_external_data(monkeypatch, capsys):
 
 
 def test_desk_decide_prints_a_six_agent_report(monkeypatch, capsys):
+    """Verifies: desk decide prints a six agent report."""
     exit_code = run_cli_in_process(
         monkeypatch, "desk", "decide", "AAPL", "--as-of", HISTORICAL_EVALUATION_TIME
     )
@@ -168,6 +180,7 @@ def test_desk_decide_prints_a_six_agent_report(monkeypatch, capsys):
 
 
 def test_desk_decide_honours_the_equity_option(monkeypatch, capsys):
+    """Verifies: desk decide honours the equity option."""
     exit_code = run_cli_in_process(
         monkeypatch,
         "desk",
@@ -185,6 +198,7 @@ def test_desk_decide_honours_the_equity_option(monkeypatch, capsys):
 
 
 def test_desk_scan_writes_ranked_reports_to_a_file(monkeypatch, tmp_path, capsys):
+    """Verifies: desk scan writes ranked reports to a file."""
     output_path = tmp_path / "scan.json"
     exit_code = run_cli_in_process(
         monkeypatch,
@@ -205,6 +219,7 @@ def test_desk_scan_writes_ranked_reports_to_a_file(monkeypatch, tmp_path, capsys
 
 
 def test_desk_scan_defaults_to_the_market_watchlist(monkeypatch, capsys):
+    """Verifies: desk scan defaults to the market watchlist."""
     exit_code = run_cli_in_process(
         monkeypatch, "desk", "scan", "--as-of", HISTORICAL_EVALUATION_TIME
     )
@@ -213,6 +228,7 @@ def test_desk_scan_defaults_to_the_market_watchlist(monkeypatch, capsys):
 
 
 def test_desk_reads_history_from_a_csv_folder(monkeypatch, tmp_path, capsys):
+    """Verifies: desk reads history from a csv folder."""
     rows = ["Date,Open,High,Low,Close,Volume"]
     rows += [
         f"2025-03-{day:02d},{100 + day},{101 + day},{99 + day},{100 + day},1000"
@@ -239,12 +255,14 @@ def test_desk_reads_history_from_a_csv_folder(monkeypatch, tmp_path, capsys):
 
 
 def test_csv_source_requires_a_folder(monkeypatch, capsys):
+    """Verifies: csv source requires a folder."""
     exit_code = run_cli_in_process(monkeypatch, "desk", "decide", "AAPL", "--source", "csv")
     assert exit_code == 2
     assert "--csv-dir" in capsys.readouterr().err
 
 
 def test_desk_reports_unwritable_output(monkeypatch, tmp_path, capsys):
+    """Verifies: desk reports unwritable output."""
     exit_code = run_cli_in_process(
         monkeypatch,
         "desk",
@@ -271,6 +289,7 @@ BACKTEST_ARGUMENTS = (
 
 
 def test_desk_backtest_reports_in_sample_metrics(monkeypatch, tmp_path, capsys):
+    """Verifies: desk backtest reports in sample metrics."""
     exit_code = run_cli_in_process(
         monkeypatch, *BACKTEST_ARGUMENTS, "--holdout-ledger", str(tmp_path / "ledger.jsonl")
     )
@@ -285,6 +304,7 @@ def test_desk_backtest_reports_in_sample_metrics(monkeypatch, tmp_path, capsys):
 
 
 def test_desk_backtest_guards_the_out_of_sample_window(monkeypatch, tmp_path, capsys):
+    """Verifies: desk backtest guards the out of sample window."""
     holdout_arguments = (
         *BACKTEST_ARGUMENTS,
         "--split",
@@ -306,6 +326,7 @@ def test_desk_backtest_guards_the_out_of_sample_window(monkeypatch, tmp_path, ca
 
 
 def test_desk_backtest_rejects_a_bad_split(monkeypatch, tmp_path, capsys):
+    """Verifies: desk backtest rejects a bad split."""
     exit_code = run_cli_in_process(
         monkeypatch,
         *BACKTEST_ARGUMENTS,
@@ -322,6 +343,7 @@ def test_desk_backtest_rejects_a_bad_split(monkeypatch, tmp_path, capsys):
     "provider,key_name", [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")]
 )
 def test_desk_provider_requires_its_key(monkeypatch, capsys, provider, key_name):
+    """Verifies: desk provider requires its key."""
     monkeypatch.delenv(key_name, raising=False)
     exit_code = run_cli_in_process(
         monkeypatch,
@@ -340,6 +362,7 @@ def test_desk_provider_requires_its_key(monkeypatch, capsys, provider, key_name)
 
 
 def test_anthropic_credentials_can_come_from_an_api_key(monkeypatch):
+    """Verifies: anthropic credentials can come from an api key."""
     from trading_desk import cli
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -347,6 +370,7 @@ def test_anthropic_credentials_can_come_from_an_api_key(monkeypatch):
 
 
 def test_anthropic_credentials_can_come_from_an_ant_sign_in(monkeypatch):
+    """Verifies: anthropic credentials can come from an ant sign in."""
     from trading_desk import cli
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -355,6 +379,7 @@ def test_anthropic_credentials_can_come_from_an_ant_sign_in(monkeypatch):
 
 
 def test_anthropic_credentials_are_missing_without_a_key_or_a_sign_in(monkeypatch):
+    """Verifies: anthropic credentials are missing without a key or a sign in."""
     from trading_desk import cli
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -367,6 +392,7 @@ def test_anthropic_credentials_are_missing_without_a_key_or_a_sign_in(monkeypatc
 def test_desk_anthropic_review_runs_on_an_ant_sign_in_without_an_api_key(
     monkeypatch, tmp_path, capsys
 ):
+    """Verifies: desk anthropic review runs on an ant sign in without an api key."""
     from types import SimpleNamespace
 
     from trading_desk import cli
@@ -412,6 +438,7 @@ def test_desk_anthropic_review_runs_on_an_ant_sign_in_without_an_api_key(
 
 
 def test_desk_openai_review_is_metered_and_cached(monkeypatch, tmp_path, capsys):
+    """Verifies: desk openai review is metered and cached."""
     import httpx
 
     request_count = 0
@@ -462,7 +489,9 @@ def test_desk_openai_review_is_metered_and_cached(monkeypatch, tmp_path, capsys)
 
 
 class FakeUvicornServer:
-    """Stands in for uvicorn so `desk serve` can be tested without opening a port."""
+    """Test double (not a test): stands in for uvicorn so `desk serve` can be tested without
+    opening a port.
+    """
 
     started_configs: list = []
 
@@ -475,6 +504,7 @@ class FakeUvicornServer:
 
 @pytest.fixture
 def fake_uvicorn_server(monkeypatch):
+    """Test fixture (not a test): provides fake uvicorn server to the tests that ask for it."""
     from trading_desk import cli
 
     FakeUvicornServer.started_configs = []
@@ -485,6 +515,7 @@ def fake_uvicorn_server(monkeypatch):
 def test_desk_serve_builds_a_loopback_app_with_fixture_defaults(
     monkeypatch, capsys, fake_uvicorn_server
 ):
+    """Verifies: desk serve builds a loopback app with fixture defaults."""
     from fastapi.testclient import TestClient
 
     assert run_cli_in_process(monkeypatch, "desk", "serve") == 0
@@ -503,6 +534,7 @@ def test_desk_serve_builds_a_loopback_app_with_fixture_defaults(
 def test_desk_serve_takes_symbols_window_speed_port_and_a_journal(
     monkeypatch, tmp_path, fake_uvicorn_server
 ):
+    """Verifies: desk serve takes symbols window speed port and a journal."""
     journal_path = tmp_path / "nested" / "journal.sqlite"
     exit_code = run_cli_in_process(
         monkeypatch,
@@ -531,6 +563,7 @@ def test_desk_serve_takes_symbols_window_speed_port_and_a_journal(
 def test_desk_serve_defaults_to_the_watchlist_and_a_trailing_year_for_real_data(
     monkeypatch, tmp_path
 ):
+    """Verifies: desk serve defaults to the watchlist and a trailing year for real data."""
     from trading_desk import cli
 
     monkeypatch.setattr(
@@ -556,6 +589,7 @@ def test_desk_serve_defaults_to_the_watchlist_and_a_trailing_year_for_real_data(
 def test_desk_serve_refuses_unsafe_or_invalid_configuration(
     monkeypatch, capsys, fake_uvicorn_server, extra_arguments, expected_message
 ):
+    """Verifies: desk serve refuses unsafe or invalid configuration."""
     assert run_cli_in_process(monkeypatch, "desk", "serve", *extra_arguments) == 2
     assert expected_message in capsys.readouterr().err
     assert fake_uvicorn_server.started_configs == []
@@ -564,6 +598,7 @@ def test_desk_serve_refuses_unsafe_or_invalid_configuration(
 def test_desk_serve_serves_a_built_terminal_when_asked_or_found(
     monkeypatch, tmp_path, capsys, fake_uvicorn_server
 ):
+    """Verifies: desk serve serves a built terminal when asked or found."""
     from fastapi.testclient import TestClient
 
     from trading_desk import cli
@@ -588,11 +623,13 @@ def test_desk_serve_serves_a_built_terminal_when_asked_or_found(
 
 
 def test_desk_serve_reports_an_unbuilt_ui_directory(monkeypatch, tmp_path, capsys):
+    """Verifies: desk serve reports an unbuilt ui directory."""
     assert run_cli_in_process(monkeypatch, "desk", "serve", "--ui-dir", str(tmp_path)) == 2
     assert "index.html" in capsys.readouterr().err
 
 
 def test_news_finnhub_requires_its_key(monkeypatch, capsys, fake_uvicorn_server):
+    """Verifies: news finnhub requires its key."""
     monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
     for command in (["decide", "AAPL"], ["scan", "AAPL"], ["serve"]):
         exit_code = run_cli_in_process(
@@ -612,6 +649,7 @@ def test_news_finnhub_requires_its_key(monkeypatch, capsys, fake_uvicorn_server)
 
 
 def test_desk_decide_reads_dated_news_from_finnhub(monkeypatch, tmp_path, capsys):
+    """Verifies: desk decide reads dated news from finnhub."""
     import httpx
 
     news_requests = []
@@ -677,6 +715,7 @@ def test_desk_decide_reads_dated_news_from_finnhub(monkeypatch, tmp_path, capsys
 def test_headline_tone_needs_both_a_news_feed_and_a_model(
     monkeypatch, capsys, fake_uvicorn_server, extra_arguments
 ):
+    """Verifies: headline tone needs both a news feed and a model."""
     monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
     for command in (["decide", "AAPL"], ["serve"]):
         exit_code = run_cli_in_process(
@@ -689,6 +728,7 @@ def test_headline_tone_needs_both_a_news_feed_and_a_model(
 
 
 def test_desk_decide_reads_headline_tone_with_claude_and_meters_it(monkeypatch, tmp_path, capsys):
+    """Verifies: desk decide reads headline tone with claude and meters it."""
     from types import SimpleNamespace
 
     import httpx
@@ -782,6 +822,7 @@ def test_desk_decide_reads_headline_tone_with_claude_and_meters_it(monkeypatch, 
 
 
 def test_news_tone_needs_both_a_news_feed_and_a_model(monkeypatch, capsys):
+    """Verifies: news tone needs both a news feed and a model."""
     monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub-key")
     for extra_arguments in (["--news-tone"], ["--news-tone", "--news", "finnhub"]):
         exit_code = run_cli_in_process(

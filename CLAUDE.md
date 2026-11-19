@@ -17,6 +17,7 @@ A research-only Python market-intelligence workflow (LangGraph + Pydantic + http
   - `fix(paper): fill stop orders at bar open on gap-through`
   - `chore(ci): enforce 80 percent coverage gate`
 - **Tests:** coverage must stay at or above 80% (enforced in CI). Cover new behaviour at the unit, integration and end-to-end layers; no test may touch the network.
+- **Tests explain themselves.** Every test asserts something and has a docstring saying what it verifies. Helpers in test files are named `make_*`/`fake_*` or for the action they perform, and their docstring starts with `Test helper`, `Test fixture` or `Test double`. Every function or class longer than a dozen lines has a docstring that says what it does. `tests/test_suite_quality.py` enforces all of this.
 - **Names:** use descriptive variable, constant and function names in new code. Rename existing short names only in files already being changed.
 - SSH pushes may be refused on this machine; push over HTTPS with the `gh` credential helper:
   `git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/izzydoescode/ai-trading-desk.git <branch>`
