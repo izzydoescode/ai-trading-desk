@@ -113,3 +113,78 @@ def test_relative_volume_compares_latest_session_to_prior_average():
 def test_relative_volume_is_unavailable_when_prior_sessions_have_no_volume():
     candles = [candle.model_copy(update={"volume": 0}) for candle in bars([100] * 21)]
     assert relative_volume(candles, 20) is None
+
+
+def ohlc_bars(rows):
+    """Candles from (high, low, close) rows on consecutive days."""
+    first_day = datetime(2024, 1, 1, tzinfo=UTC)
+    return [
+        Candle(
+            timestamp=first_day + timedelta(days=index),
+            open=close,
+            high=high,
+            low=low,
+            close=close,
+            volume=1_000,
+        )
+        for index, (high, low, close) in enumerate(rows)
+    ]
+
+
+def test_prior_levels_exclude_the_latest_session_so_it_can_break_them():
+    from trading_desk.tools.indicators import prior_extreme
+
+    rows = [(10 + index, 5 + index, 8 + index) for index in range(21)]  # rising highs and lows
+    rows.append((100.0, 1.0, 50.0))  # the latest bar is extreme in both directions
+    candles = ohlc_bars(rows)
+    assert prior_extreme(candles, 20, highest=True) == 30.0  # highest of the 20 before today
+    assert prior_extreme(candles, 20, highest=False) == 6.0
+    measurements = calculate(candles)
+    assert measurements.prior_high20 == 30.0
+    assert (measurements.latest_high, measurements.latest_low) == (100.0, 1.0)
+    assert (measurements.previous_high, measurements.previous_low) == (30.0, 25.0)
+    # The day's change is the latest close (50) against the previous close (28).
+    assert measurements.previous_close == 28.0
+    assert measurements.day_change_pct == pytest.approx((50.0 / 28.0 - 1) * 100)
+    # high20 still includes today; prior_high20 does not.
+    assert measurements.high20 == 100.0
+
+
+@pytest.mark.parametrize(
+    "session_count,has20,has55,has252",
+    [
+        (1, False, False, False),
+        (20, False, False, False),
+        (21, True, False, False),
+        (56, True, True, False),
+        (252, True, True, False),
+        (253, True, True, True),
+    ],
+)
+def test_longer_windows_stay_unavailable_until_there_is_enough_history(
+    session_count, has20, has55, has252
+):
+    measurements = calculate(ohlc_bars([(11.0, 9.0, 10.0)] * session_count))
+    assert (measurements.prior_high20 is not None) is has20
+    assert (measurements.prior_high55 is not None) is has55
+    assert (measurements.prior_high252 is not None) is has252
+    assert (measurements.prior_low252 is not None) is has252
+    assert (measurements.previous_high is not None) is (session_count >= 2)
+    assert (measurements.previous_close is not None) is (session_count >= 2)
+    assert (measurements.day_change_pct is not None) is (session_count >= 2)
+
+
+def test_bollinger_bands_are_two_standard_deviations_around_the_twenty_session_average():
+    from trading_desk.tools.indicators import bollinger_bands
+
+    closes = [10.0, 12.0] * 10  # average 11, population standard deviation 1
+    upper_band, lower_band = bollinger_bands(closes)
+    assert (upper_band, lower_band) == pytest.approx((13.0, 9.0))
+    assert bollinger_bands(closes[:19]) == (None, None)
+    assert bollinger_bands([7.0] * 20) == pytest.approx((7.0, 7.0))
+    # Only the latest twenty closes count.
+    assert bollinger_bands([500.0] * 5 + closes) == pytest.approx((13.0, 9.0))
+    measurements = calculate(bars(closes))
+    assert (measurements.bollinger_upper20, measurements.bollinger_lower20) == pytest.approx(
+        (13.0, 9.0)
+    )

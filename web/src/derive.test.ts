@@ -4,6 +4,7 @@ import {
   performance,
   pipelineStages,
   priceLevels,
+  signalTag,
   tapeQuotes,
   watchlistRows,
 } from "./derive";
@@ -94,6 +95,14 @@ describe("watchlist", () => {
         report.symbol = "C";
       }),
     });
+    expect(rows.map((row) => row.volumeSurge)).toEqual([false, false, false]);
+    const surging = watchlistRows({
+      S: reportWith((report) => {
+        report.scout.volume_surge = true;
+        report.indicators.relative_volume20 = 1.8;
+      }),
+    });
+    expect(surging[0]).toMatchObject({ volumeSurge: true, relativeVolume: 1.8 });
     expect(rows.map((row) => [row.symbol, row.verdict, row.tone])).toEqual([
       ["C", "WATCH", "up"],
       ["A", "SKIP", "dim"],
@@ -396,5 +405,40 @@ describe("tape", () => {
     ]);
     desk.settings = null;
     expect(tapeQuotes(desk).map((quote) => quote.symbol)).toEqual(["AAPL", "MSFT"]);
+  });
+});
+
+describe("scout signal tags", () => {
+  it("colours a confirmed move by direction and dims an unconfirmed one", () => {
+    expect(
+      signalTag({ kind: "NEW_52_WEEK_HIGH", level: 108, is_bullish: true, volume_confirmed: true }),
+    ).toEqual({ label: "52W HIGH ✓", tone: "up", description: "52w high at 108.00, confirmed by volume" });
+    expect(
+      signalTag({ kind: "NEW_52_WEEK_LOW", level: 85, is_bullish: false, volume_confirmed: true }),
+    ).toMatchObject({ label: "52W LOW ✓", tone: "down" });
+    expect(
+      signalTag({ kind: "BIG_PERCENT_GAINER", level: 80, is_bullish: true, volume_confirmed: false, change_pct: 37.5 }),
+    ).toEqual({
+      label: "BIG GAINER · no vol",
+      tone: "dim",
+      description: "big gainer +37.5% from 80.00, not confirmed by volume",
+    });
+    expect(
+      signalTag({ kind: "BIG_PERCENT_GAINER", level: 80, is_bullish: true, volume_confirmed: true, change_pct: 37.5 }),
+    ).toMatchObject({ label: "BIG GAINER ✓", tone: "up" });
+    expect(
+      signalTag({ kind: "BREAKDOWN_BELOW_PRIOR_DAY_LOW", level: 111, is_bullish: false, volume_confirmed: false }),
+    ).toMatchObject({ label: "BREAKDOWN · no vol", tone: "dim" });
+  });
+
+  it("reaches the watchlist rows", () => {
+    const rows = watchlistRows({
+      AAPL: reportWith((report) => {
+        report.scout.signals = [
+          { kind: "NEW_52_WEEK_HIGH", level: 108, is_bullish: true, volume_confirmed: true },
+        ];
+      }),
+    });
+    expect(rows[0]!.signals.map((signal) => signal.label)).toEqual(["52W HIGH ✓"]);
   });
 });

@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
-  "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
+  "run_id": "89ade756-6aae-4060-8f60-1b325cfecde6",
   "symbol": "AAPL",
-  "analysis_timestamp": "2026-11-17T00:53:06.624609Z",
+  "analysis_timestamp": "2026-11-17T05:33:32.267322Z",
   "evaluated_as_of": "2025-04-23T22:00:00Z",
   "mode": "deterministic",
   "data": {
@@ -10,7 +10,7 @@
     "source": "bundled-synthetic-fixture",
     "interval": "1d",
     "synthetic": true,
-    "retrieved_at": "2026-11-17T00:53:06.622695Z",
+    "retrieved_at": "2026-11-17T05:33:32.265444Z",
     "candles": [
       {
         "timestamp": "2025-04-14T21:00:00Z",
@@ -90,7 +90,19 @@
     "return20_pct": null,
     "relative_volume20": null,
     "high20": null,
-    "low20": null
+    "low20": null,
+    "latest_high": 126.7529,
+    "latest_low": 124.7529,
+    "previous_high": 126.4411,
+    "previous_low": 124.4411,
+    "previous_close": 125.4411,
+    "day_change_pct": 0.2485628713396082,
+    "prior_high20": null,
+    "prior_high55": null,
+    "prior_high252": null,
+    "prior_low252": null,
+    "bollinger_upper20": null,
+    "bollinger_lower20": null
   },
   "technical": {
     "classification": "INSUFFICIENT_DATA",
@@ -131,23 +143,23 @@
   "dissent": [],
   "trace": [
     {
-      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
+      "run_id": "89ade756-6aae-4060-8f60-1b325cfecde6",
       "agent": "market_data",
       "status": "ok",
-      "duration_ms": 1.008,
+      "duration_ms": 0.569,
       "provider": "bundled-synthetic-fixture",
       "error": null
     },
     {
-      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
+      "run_id": "89ade756-6aae-4060-8f60-1b325cfecde6",
       "agent": "quality_audit",
       "status": "degraded",
-      "duration_ms": 0.016,
+      "duration_ms": 0.013,
       "provider": "python",
       "error": "Data quality gate failed"
     },
     {
-      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
+      "run_id": "89ade756-6aae-4060-8f60-1b325cfecde6",
       "agent": "technical",
       "status": "ok",
       "duration_ms": 0.001,
@@ -155,7 +167,7 @@
       "error": null
     },
     {
-      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
+      "run_id": "89ade756-6aae-4060-8f60-1b325cfecde6",
       "agent": "contrarian",
       "status": "ok",
       "duration_ms": 0.001,
@@ -163,10 +175,10 @@
       "error": null
     },
     {
-      "run_id": "667e8adf-2471-43e9-8c5b-3f16cacd3684",
+      "run_id": "89ade756-6aae-4060-8f60-1b325cfecde6",
       "agent": "synthesis",
       "status": "ok",
-      "duration_ms": 0.0,
+      "duration_ms": 0.001,
       "provider": "deterministic-rules",
       "error": null
     }
