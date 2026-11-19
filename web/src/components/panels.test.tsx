@@ -198,7 +198,7 @@ describe("watchlist and journal", () => {
         rows={[
           { symbol: "TSLA", score: null, verdict: "NEED DATA", tone: "caution", relativeVolume: null, volumeSurge: false, signals: [], side: null },
           { symbol: "NVDA", score: 0.7, verdict: "WATCH", tone: "up", relativeVolume: 1.83, volumeSurge: true, signals: [{ label: "52W HIGH ✓", tone: "up", description: "52w high at 108.00, confirmed by volume" }], side: "SHORT" },
-          { symbol: "AAPL", score: 0.6, verdict: "WATCH", tone: "up", relativeVolume: 1.1, volumeSurge: false, signals: [{ label: "BREAKOUT · no vol", tone: "dim", description: "breakout at 109.00, not confirmed by volume" }], side: "LONG" },
+          { symbol: "AAPL", score: 0.6, verdict: "WATCH", tone: "up", relativeVolume: 1.1, volumeSurge: false, signals: [{ label: "BIG GAINER · no vol", tone: "dim", description: "big gainer +37.5% from 80.00, not confirmed by volume" }], side: "LONG" },
         ]}
         focusedSymbol={null}
         onSelect={vi.fn()}
@@ -211,10 +211,10 @@ describe("watchlist and journal", () => {
     expect(screen.getByText("52W HIGH ✓")).toHaveClass("tone-up");
     expect(screen.getByText("WATCH SHORT")).toBeInTheDocument();
     expect(screen.getByText("WATCH LONG")).toBeInTheDocument();
-    expect(screen.getByText("BREAKOUT · no vol")).toHaveClass("tone-dim");
-    expect(screen.getByText("BREAKOUT · no vol")).toHaveAttribute(
+    expect(screen.getByText("BIG GAINER · no vol")).toHaveClass("tone-dim");
+    expect(screen.getByText("BIG GAINER · no vol")).toHaveAttribute(
       "title",
-      "breakout at 109.00, not confirmed by volume",
+      "big gainer +37.5% from 80.00, not confirmed by volume",
     );
   });
 
