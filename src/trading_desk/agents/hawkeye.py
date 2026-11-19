@@ -1,7 +1,8 @@
 """HAWKEYE, the market scout: ranks symbols by how much attention they deserve.
 
 A transparent, uncalibrated scoring rule over measured indicators. It only decides
-what the desk looks at next; it never proposes a trade. Long setups only for now.
+what the desk looks at next; it never proposes a trade. It scores whichever way the
+symbol is trending: an uptrend is a long candidate, a downtrend a short candidate.
 """
 
 from collections.abc import Iterable
@@ -13,6 +14,7 @@ from trading_desk.models import (
     ScoutSignal,
     ScoutSignalKind,
     ScoutVerdict,
+    TradeSide,
 )
 
 WATCH_SCORE_THRESHOLD = 0.6
@@ -118,12 +120,26 @@ def scout(symbol: str, indicators: Indicators, blockers: list[str]) -> ScoutRepo
 
     close, sma20, sma50 = indicators.close, indicators.sma20, indicators.sma50
     rsi14, return20_pct = indicators.rsi14, indicators.return20_pct
-    trend_is_aligned = close > sma20 > sma50
+    uptrend_is_aligned = close > sma20 > sma50
+    downtrend_is_aligned = close < sma20 < sma50
+    # The side being scored: short when price and the 20-day average are both under the
+    # 50-day, long otherwise (a symbol with no trend is scored as the long candidate it
+    # would have to become).
+    side = TradeSide.SHORT if close < sma50 and sma20 < sma50 else TradeSide.LONG
+    is_long = side is TradeSide.LONG
+    trend_is_aligned = uptrend_is_aligned if is_long else downtrend_is_aligned
     reasons: list[str] = []
 
     if trend_is_aligned:
         trend_points = TREND_ALIGNED_POINTS
-        reasons.append("Trend aligned: close above SMA20 above SMA50.")
+        reasons.append(
+            "Trend aligned: close above SMA20 above SMA50."
+            if is_long
+            else "Downtrend aligned: close below SMA20 below SMA50."
+        )
+    elif not is_long:
+        trend_points = ABOVE_LONG_AVERAGE_POINTS
+        reasons.append("Close below SMA50 but the averages are not aligned.")
     elif close > sma50:
         trend_points = ABOVE_LONG_AVERAGE_POINTS
         reasons.append("Close above SMA50 but the averages are not aligned.")
@@ -131,16 +147,26 @@ def scout(symbol: str, indicators: Indicators, blockers: list[str]) -> ScoutRepo
         trend_points = 0.0
         reasons.append("Close below SMA50: no uptrend.")
 
-    momentum_share = min(max(return20_pct / FULL_MOMENTUM_RETURN_PERCENT, 0.0), 1.0)
+    # Momentum counts in the direction of the side: gains for a long, losses for a short.
+    directional_return = return20_pct if is_long else -return20_pct
+    momentum_share = min(max(directional_return / FULL_MOMENTUM_RETURN_PERCENT, 0.0), 1.0)
     momentum_points = MAXIMUM_MOMENTUM_POINTS * momentum_share
     reasons.append(f"20-session return {return20_pct:+.2f}%.")
 
-    if 45 <= rsi14 < 70:
+    # Strength is RSI on the right side of 50 without being stretched: 45 to 70 for a
+    # long, 30 to 55 for a short.
+    is_healthy = (45 <= rsi14 < 70) if is_long else (30 < rsi14 <= 55)
+    is_fading = (30 < rsi14 < 45) if is_long else (55 < rsi14 < 70)
+    if is_healthy:
         strength_points = HEALTHY_STRENGTH_POINTS
-        reasons.append(f"RSI14 {rsi14:.1f} is firm without being overbought.")
-    elif 30 < rsi14 < 45:
+        reasons.append(
+            f"RSI14 {rsi14:.1f} is firm without being overbought."
+            if is_long
+            else f"RSI14 {rsi14:.1f} is weak without being oversold."
+        )
+    elif is_fading:
         strength_points = RECOVERING_STRENGTH_POINTS
-        reasons.append(f"RSI14 {rsi14:.1f} is soft.")
+        reasons.append(f"RSI14 {rsi14:.1f} is soft." if is_long else f"RSI14 {rsi14:.1f} is firm.")
     else:
         strength_points = 0.0
         reasons.append(f"RSI14 {rsi14:.1f} is at an extreme.")
@@ -169,18 +195,27 @@ def scout(symbol: str, indicators: Indicators, blockers: list[str]) -> ScoutRepo
         reasons.append(f"{describe_signal(signal)}, {confirmation}.")
     if indicators.prior_high252 is None:
         reasons.append(f"52-week range unavailable: {indicators.candle_count} sessions of history.")
-    has_confirmed_breakdown = any(
-        signal.volume_confirmed and not signal.is_bullish for signal in signals
+    # A heavy-volume move against the side being scored takes the symbol off the list:
+    # a breakdown for a long candidate, a new high or big gain for a short candidate.
+    has_confirmed_move_against = any(
+        signal.volume_confirmed and signal.is_bullish != is_long for signal in signals
     )
-    if has_confirmed_breakdown:
-        reasons.append("Heavy-volume breakdown: not a long candidate today.")
+    if has_confirmed_move_against:
+        reasons.append(
+            "Heavy-volume breakdown: not a long candidate today."
+            if is_long
+            else "Heavy-volume move up: not a short candidate today."
+        )
 
     score = round(trend_points + momentum_points + strength_points + participation_points, 4)
-    is_watch = trend_is_aligned and score >= WATCH_SCORE_THRESHOLD and not has_confirmed_breakdown
+    is_watch = (
+        trend_is_aligned and score >= WATCH_SCORE_THRESHOLD and not has_confirmed_move_against
+    )
     return ScoutReport(
         symbol=symbol,
         verdict=ScoutVerdict.WATCH if is_watch else ScoutVerdict.SKIP,
         score=score,
+        side=side if trend_is_aligned else None,
         volume_surge=has_volume_surge,
         signals=signals,
         reasons=reasons,
@@ -210,4 +245,10 @@ def rank_watchlist(scout_reports: Iterable[ScoutReport]) -> list[ScoutReport]:
 
 
 def confirmed_bullish_signal_count(report: ScoutReport) -> int:
-    return sum(1 for signal in report.signals if signal.is_bullish and signal.volume_confirmed)
+    """How many volume-confirmed signals point the way this report's side does."""
+    wants_bullish = report.side is not TradeSide.SHORT
+    return sum(
+        1
+        for signal in report.signals
+        if signal.volume_confirmed and signal.is_bullish == wants_bullish
+    )

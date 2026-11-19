@@ -316,3 +316,97 @@ def test_a_confirmed_big_gainer_outranks_a_higher_score_and_an_unconfirmed_one_d
         [report("PLAIN", 0.9), report("QUIET", 0.8, False), report("LOUD", 0.7, True)]
     )
     assert [scout_report.symbol for scout_report in ranked] == ["LOUD", "PLAIN", "QUIET"]
+
+
+DOWNTREND = {"close": 90.0, "sma20": 95.0, "sma50": 100.0, "rsi14": 40.0, "return20_pct": -10.0}
+
+
+def test_a_strong_aligned_downtrend_is_watched_as_a_short_candidate():
+    """Verifies: a downtrend scores on the short side: aligned below both averages, falling,
+    RSI weak without being oversold, with volume. It is WATCH with side SHORT.
+    """
+    report = scout("NVDA", make_indicators(**DOWNTREND), blockers=[])
+    assert report.verdict is ScoutVerdict.WATCH
+    assert report.side.value == "SHORT"
+    assert report.score == pytest.approx(1.0)
+    assert "Downtrend aligned: close below SMA20 below SMA50." in report.reasons
+    assert any("weak without being oversold" in reason for reason in report.reasons)
+
+
+def test_an_uptrend_is_a_long_candidate_and_no_trend_has_no_side():
+    """Verifies: the side follows the trend, and a symbol that is not aligned either way
+    carries no side at all.
+    """
+    assert scout("AAPL", make_indicators(), blockers=[]).side.value == "LONG"
+    no_trend = scout("MSFT", make_indicators(close=104.0, sma20=106.0), blockers=[])
+    assert no_trend.side is None
+    assert no_trend.verdict is ScoutVerdict.SKIP
+    assert scout("AAPL", make_indicators(), blockers=["Stale daily data"]).side is None
+
+
+@pytest.mark.parametrize(
+    "overrides,expected_score",
+    [
+        ({"rsi14": 25.0}, 0.8),  # oversold: no strength points for a short
+        ({"rsi14": 60.0}, 0.9),  # firm RSI in a downtrend: half strength points
+        ({"return20_pct": 4.0}, 0.7),  # rising over 20 sessions: no momentum for a short
+        ({"relative_volume20": 0.5}, 0.9),  # quiet volume: no participation points
+    ],
+)
+def test_short_scoring_mirrors_long_scoring(overrides, expected_score):
+    """Verifies: each scoring component counts in the short direction for a downtrend."""
+    report = scout("NVDA", make_indicators(**{**DOWNTREND, **overrides}), blockers=[])
+    assert report.score == pytest.approx(expected_score)
+
+
+def test_a_heavy_volume_big_gain_takes_a_short_candidate_off_the_list():
+    """Verifies: the move that disqualifies a short is the opposite of the one that
+    disqualifies a long: a volume-confirmed big one-day gain.
+    """
+    squeezed = scout(
+        "NVDA",
+        make_indicators(**DOWNTREND, previous_close=65.0, day_change_pct=38.0),
+        blockers=[],
+    )
+    assert signal_kinds(squeezed) == {"BIG_PERCENT_GAINER": True}
+    assert squeezed.verdict is ScoutVerdict.SKIP
+    assert "Heavy-volume move up: not a short candidate today." in squeezed.reasons
+    breaking_down = scout("NVDA", make_indicators(**DOWNTREND, previous_low=91.0), blockers=[])
+    assert signal_kinds(breaking_down) == {"BREAKDOWN_BELOW_PRIOR_DAY_LOW": True}
+    assert breaking_down.verdict is ScoutVerdict.WATCH
+
+
+def test_a_confirmed_breakdown_ranks_a_short_candidate_first():
+    """Verifies: for ranking, the signals that count are the ones pointing the candidate's
+    own way: a confirmed breakdown lifts a short, and does nothing for a long.
+    """
+    from trading_desk.models import ScoutSignal
+
+    def report(symbol, side, is_bullish):
+        return ScoutReport(
+            symbol=symbol,
+            verdict=ScoutVerdict.WATCH,
+            score=0.7,
+            side=side,
+            signals=[
+                ScoutSignal(
+                    kind="NEW_52_WEEK_LOW" if not is_bullish else "NEW_52_WEEK_HIGH",
+                    level=100.0,
+                    is_bullish=is_bullish,
+                    volume_confirmed=True,
+                )
+            ],
+            reasons=["r"],
+            evidence=[],
+        )
+
+    ranked = rank_watchlist(
+        [
+            report("LONG_WITH_BREAKDOWN", "LONG", False),
+            report("SHORT_WITH_BREAKDOWN", "SHORT", False),
+        ]
+    )
+    assert [scout_report.symbol for scout_report in ranked] == [
+        "SHORT_WITH_BREAKDOWN",
+        "LONG_WITH_BREAKDOWN",
+    ]

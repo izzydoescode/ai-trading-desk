@@ -48,7 +48,7 @@ export function Balance({ account, equityCurve, performance }: BalanceProps) {
         </span>
         <span className="label">
           {position
-            ? `OPEN ${position.symbol} · ${position.units} sh @ ${price(position.entry_price)} · stop ${price(position.stop)}`
+            ? `OPEN ${position.side} ${position.symbol} · ${position.units} sh @ ${price(position.entry_price)} · stop ${price(position.stop)}`
             : account?.pending_symbols.length
               ? `QUEUED ${account.pending_symbols.join(", ")} for next open`
               : "NO OPEN POSITION"}

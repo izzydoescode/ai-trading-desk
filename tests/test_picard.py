@@ -249,3 +249,106 @@ def test_a_reversion_setup_waits_on_a_heavy_volume_breakdown_or_missing_data():
         ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, False)]
     )
     assert decide_reversion(quiet_breakdown).action is DecisionAction.TRADE
+
+
+def make_short_chart_report(counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"):
+    """Test helper (not a test): builds a chart report carrying a complete short setup."""
+    return ChartReport(
+        thesis=make_analysis(Classification.BEARISH),
+        counter_case=make_analysis(counter_case),
+        setup=TradeSetup(
+            strategy=strategy,
+            side="SHORT",
+            entry_reference=100.0,
+            stop=105.0,
+            target=85.0,
+            confirmation="c",
+            invalidation="i",
+        ),
+    )
+
+
+def make_short_scout_report():
+    """Test helper (not a test): builds a WATCH rating on the short side."""
+    return ScoutReport(
+        symbol="AAPL",
+        verdict=ScoutVerdict.WATCH,
+        score=0.8,
+        side="SHORT",
+        reasons=["r"],
+        evidence=[],
+    )
+
+
+def decide_short(**overrides):
+    """Test helper (not a test): decides a short with every agent agreeing unless overridden."""
+    return decide(
+        **{
+            "scout_report": make_short_scout_report(),
+            "chart": make_short_chart_report(),
+            **overrides,
+        }
+    )
+
+
+def test_a_short_trades_when_the_scout_and_the_setup_both_point_down():
+    """Verifies: an approved short with a short-side WATCH rating is a TRADE."""
+    assert decide_short().action is DecisionAction.TRADE
+
+
+def test_the_scout_and_the_setup_must_point_the_same_way():
+    """Verifies: a long-side WATCH cannot wave through a short setup, nor a short-side WATCH a
+    long setup; the desk waits and says why.
+    """
+    short_setup_long_scout = decide(
+        scout_report=make_scout_report().model_copy(update={"side": TradeSide.LONG}),
+        chart=make_short_chart_report(),
+    )
+    assert short_setup_long_scout.action is DecisionAction.WAIT
+    assert "long candidate, but NEO's setup is short" in short_setup_long_scout.summary
+    long_setup_short_scout = decide(scout_report=make_short_scout_report())
+    assert long_setup_short_scout.action is DecisionAction.WAIT
+    assert "short candidate, but NEO's setup is long" in long_setup_short_scout.summary
+
+
+def test_each_objection_blocks_the_side_it_argues_against():
+    """Verifies: bullish news and an oversold (bullish) counter-case stop a short but not a
+    long; bearish news and an overbought counter-case stop a long but not a short.
+    """
+    assert decide_short(news_report=make_news_report(Classification.BULLISH)).action is (
+        DecisionAction.WAIT
+    )
+    assert decide_short(news_report=make_news_report(Classification.BEARISH)).action is (
+        DecisionAction.TRADE
+    )
+    assert decide_short(chart=make_short_chart_report(Classification.BULLISH)).action is (
+        DecisionAction.WAIT
+    )
+    assert decide_short(chart=make_short_chart_report(Classification.BEARISH)).action is (
+        DecisionAction.TRADE
+    )
+    assert decide(news_report=make_news_report(Classification.BULLISH)).action is (
+        DecisionAction.TRADE
+    )
+
+
+def test_crowd_hype_stops_a_long_but_not_a_short():
+    """Verifies: one-sided bullish hype is a reason not to buy; it is not a reason not to
+    sell short.
+    """
+    hyped = make_sentiment_report(Classification.BULLISH, HypeRisk.HIGH)
+    assert decide(sentiment_report=hyped).action is DecisionAction.WAIT
+    assert decide_short(sentiment_report=hyped).action is DecisionAction.TRADE
+
+
+def test_a_short_band_trade_waits_on_a_heavy_volume_new_high_against_it():
+    """Verifies: the band strategy's narrower scout gate mirrors for shorts: a volume-backed
+    new high blocks it, a volume-backed breakdown does not.
+    """
+    short_band_chart = make_short_chart_report(strategy="BOLLINGER_REVERSION")
+    squeezed = make_scout_report_with_signals(ScoutVerdict.SKIP, [("NEW_52_WEEK_HIGH", True, True)])
+    falling = make_scout_report_with_signals(
+        ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, True)]
+    )
+    assert decide(scout_report=squeezed, chart=short_band_chart).action is DecisionAction.WAIT
+    assert decide(scout_report=falling, chart=short_band_chart).action is DecisionAction.TRADE

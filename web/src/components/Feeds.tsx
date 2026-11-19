@@ -70,7 +70,10 @@ export function Watchlist({ rows, focusedSymbol, onSelect }: WatchlistProps) {
                   {row.relativeVolume === null ? "–" : `${price(row.relativeVolume)}x`}
                   {row.volumeSurge && " ▲ SURGE"}
                 </td>
-                <td className={`number strong tone-${row.tone}`}>{row.verdict}</td>
+                <td className={`number strong tone-${row.tone}`}>
+                  {row.verdict}
+                  {row.side && row.verdict === "WATCH" && ` ${row.side}`}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -30,6 +30,7 @@ from trading_desk.models import (
     ExitReason,
     Model,
     RiskLimits,
+    TradeSide,
     VenueEvent,
     VenueEventKind,
 )
@@ -255,20 +256,22 @@ async def run_engine(
         ]
         for symbol in symbols_with_a_bar:
             position = venue.positions.get(symbol)
-            if position is not None and position.target_follows_upper_band:
-                # "Exit at the next touch of the upper band": rest the target at the band
-                # as it stood after the PREVIOUS session, a level known before this bar opens.
+            if position is not None and position.target_follows_band:
+                # "Exit at the next touch of the opposite band" (upper for a long, lower for
+                # a short): rest the target at that band as it stood after the PREVIOUS
+                # session, a level known before this bar opens.
                 closes_before_this_bar = [
                     close for timestamp, close in closes_by_symbol[symbol] if timestamp < bar_time
                 ]
-                upper_band, _ = bollinger_bands(closes_before_this_bar)
-                if upper_band is not None and venue.move_target(symbol, upper_band):
+                upper_band, lower_band = bollinger_bands(closes_before_this_bar)
+                exit_band = upper_band if position.side is TradeSide.LONG else lower_band
+                if exit_band is not None and venue.move_target(symbol, exit_band):
                     logger.debug(
-                        "run_id=%s bar=%s symbol=%s target moved to upper band %.4f",
+                        "run_id=%s bar=%s symbol=%s target moved to its exit band %.4f",
                         run_id,
                         bar_time.isoformat(),
                         symbol,
-                        upper_band,
+                        exit_band,
                     )
             for venue_event in venue.process_bar(symbol, bars_by_symbol[symbol][bar_time]):
                 recorder.emit_venue_event(venue_event)

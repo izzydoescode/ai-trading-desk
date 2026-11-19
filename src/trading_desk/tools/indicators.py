@@ -105,6 +105,8 @@ def calculate(candles: list[Candle]) -> Indicators:
         prior_high20=prior_extreme(candles, RANGE_LOOKBACK_SESSIONS, highest=True),
         prior_high55=prior_extreme(candles, BREAKOUT_LOOKBACK_SESSIONS, highest=True),
         prior_high252=prior_extreme(candles, YEAR_LOOKBACK_SESSIONS, highest=True),
+        prior_low20=prior_extreme(candles, RANGE_LOOKBACK_SESSIONS, highest=False),
+        prior_low55=prior_extreme(candles, BREAKOUT_LOOKBACK_SESSIONS, highest=False),
         prior_low252=prior_extreme(candles, YEAR_LOOKBACK_SESSIONS, highest=False),
         bollinger_upper20=bollinger_upper,
         bollinger_lower20=bollinger_lower,

@@ -216,3 +216,24 @@ def test_risk_limits_default_to_the_beginner_rules_and_are_immutable():
     assert not limits.kill_switch_engaged
     with pytest.raises(ValidationError):
         limits.maximum_open_ideas = 5
+
+
+def test_a_short_setup_needs_its_target_below_and_its_stop_above_the_entry():
+    """Verifies: the level rule depends on the side: a short is valid with target < entry <
+    stop, and the long arrangement of the same prices is rejected for a short.
+    """
+    short_setup = make_trade_setup(side="SHORT", stop=105.0, target=85.0)
+    assert short_setup.side.value == "SHORT"
+    for levels in ({"stop": 95.0, "target": 115.0}, {"stop": 105.0, "target": 101.0}):
+        with pytest.raises(ValidationError, match="short needs target < entry < stop"):
+            make_trade_setup(side="SHORT", **levels)
+
+
+def test_a_short_plan_follows_the_same_level_rule():
+    """Verifies: a sized plan is validated for its side as well, so a short plan cannot
+    carry long-shaped levels.
+    """
+    short_plan = make_trade_plan(side="SHORT", stop=105.0, target=88.0)
+    assert short_plan.side.value == "SHORT"
+    with pytest.raises(ValidationError, match="short needs target < entry < stop"):
+        make_trade_plan(side="SHORT")

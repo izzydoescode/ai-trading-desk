@@ -18,6 +18,7 @@ from trading_desk.models import (
     ScoutVerdict,
     SentimentReport,
     SetupStrategy,
+    TradeSide,
 )
 
 
@@ -57,16 +58,20 @@ def decide(
         )
     if risk_report.verdict == RiskVerdict.REVISE:
         return _wait("ODIN asked for a revision.", risk_report.revision, sources, dissent)
-    if chart.setup is not None and chart.setup.strategy is SetupStrategy.BOLLINGER_REVERSION:
-        # A pullback to the lower band is never a trend-following WATCH, so the scout's
-        # gate for it is narrower: usable data and no heavy-volume breakdown.
-        has_confirmed_breakdown = any(
-            signal.volume_confirmed and not signal.is_bullish for signal in scout_report.signals
+    setup = chart.setup
+    is_long = setup is None or setup.side is TradeSide.LONG
+    if setup is not None and setup.strategy is SetupStrategy.BOLLINGER_REVERSION:
+        # A pullback to the band is never a with-the-trend WATCH, so the scout's gate for
+        # it is narrower: usable data and no heavy-volume move against the trade.
+        has_confirmed_move_against = any(
+            signal.volume_confirmed and signal.is_bullish != is_long
+            for signal in scout_report.signals
         )
-        if scout_report.verdict == ScoutVerdict.NEED_MORE_DATA or has_confirmed_breakdown:
+        if scout_report.verdict == ScoutVerdict.NEED_MORE_DATA or has_confirmed_move_against:
             return _wait(
-                "HAWKEYE flags the pullback as a breakdown or lacks the data to judge it.",
-                "The pullback must hold without a heavy-volume breakdown.",
+                "HAWKEYE flags a heavy-volume move against the trade or lacks the data to "
+                "judge it.",
+                "The pullback must hold without a heavy-volume move against it.",
                 sources,
                 dissent,
             )
@@ -77,21 +82,34 @@ def decide(
             sources,
             dissent,
         )
-    if chart.counter_case.classification == Classification.BEARISH:
+    elif setup is not None and scout_report.side is not None and scout_report.side != setup.side:
         return _wait(
-            "NEO's own counter-case is bearish, so the thesis is contested.",
-            "Momentum must cool (RSI14 below 70) while the uptrend holds.",
+            f"HAWKEYE rates {scout_report.symbol} a {scout_report.side.value.lower()} "
+            f"candidate, but NEO's setup is {setup.side.value.lower()}.",
+            "The scout and the setup must point the same way.",
             sources,
             dissent,
         )
-    if news_report.verdict == Classification.BEARISH:
+    # Each objection blocks the side it argues against: an overbought counter-case or
+    # bearish news stops a long; an oversold counter-case or bullish news stops a short.
+    opposing_view = Classification.BEARISH if is_long else Classification.BULLISH
+    if chart.counter_case.classification == opposing_view:
         return _wait(
-            "SNOWDEN reports bearish news.",
+            f"NEO's own counter-case is {opposing_view.value.lower()}, so the thesis is contested.",
+            "Momentum must cool (RSI14 below 70) while the uptrend holds."
+            if is_long
+            else "Momentum must recover (RSI14 above 30) while the downtrend holds.",
+            sources,
+            dissent,
+        )
+    if news_report.verdict == opposing_view:
+        return _wait(
+            f"SNOWDEN reports {opposing_view.value.lower()} news.",
             "The reported catalyst must clear or be absorbed by price.",
             sources,
             dissent,
         )
-    if sentiment_report.hype_risk == HypeRisk.HIGH:
+    if is_long and sentiment_report.hype_risk == HypeRisk.HIGH:
         return _wait(
             "FAMA reports high hype risk: the crowd is one-sided.",
             "Sentiment must cool to a medium or low hype reading.",

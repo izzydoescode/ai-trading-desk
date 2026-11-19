@@ -24,6 +24,7 @@ from trading_desk.models import (
     ExitReason,
     Position,
     TradePlan,
+    TradeSide,
     VenueEvent,
     VenueEventKind,
 )
@@ -73,14 +74,25 @@ class PaperVenue:
     def equity(self) -> float:
         """Cash plus open positions marked at the latest price seen for each symbol."""
         open_value = sum(
-            position.units * self._last_prices.get(symbol, position.entry_price)
+            self._position_value(position, self._last_prices.get(symbol, position.entry_price))
             for symbol, position in self.positions.items()
         )
         return round(self.cash + open_value, MONEY_DECIMAL_PLACES)
 
+    @staticmethod
+    def _position_value(position: Position, price: float) -> float:
+        """What an open position is worth at a price.
+
+        A long is worth its shares. A short is fully cash-collateralised: the cash set
+        aside at entry plus or minus what the price has moved, so it gains as price falls.
+        """
+        if position.side is TradeSide.LONG:
+            return position.units * price
+        return position.units * (2 * position.entry_price - price)
+
     def account_snapshot(self) -> AccountSnapshot:
         open_risk_amount = sum(
-            max(position.entry_price - position.stop, 0.0) * position.units
+            abs(position.entry_price - position.stop) * position.units
             for position in self.positions.values()
         ) + sum(plan.risk_amount for plan in self.pending_orders.values())
         return AccountSnapshot(
@@ -115,14 +127,15 @@ class PaperVenue:
         )
 
     def move_target(self, symbol: str, new_target: float) -> bool:
-        """Move an open position's target to follow the upper Bollinger band.
+        """Move an open position's target to follow its exit band: the upper Bollinger
+        band for a long, the lower band for a short.
 
         Only positions whose plan asked for a band exit are moved. The new level must
         come from bars BEFORE the one about to be processed, so it is a price the desk
         could really have had resting in the market. Returns True when a target moved.
         """
         position = self.positions.get(symbol)
-        if position is None or not position.target_follows_upper_band or new_target <= 0:
+        if position is None or not position.target_follows_band or new_target <= 0:
             return False
         self.positions[symbol] = position.model_copy(update={"target": new_target})
         return True
@@ -164,25 +177,29 @@ class PaperVenue:
         The
         order is rejected instead if cash no longer covers it.
         """
-        if candle.open <= plan.stop:
-            return self._event(
-                VenueEventKind.CANCEL, candle.timestamp, plan.symbol, "opened_at_or_below_stop"
-            )
-        if candle.open >= plan.target:
-            return self._event(
-                VenueEventKind.CANCEL, candle.timestamp, plan.symbol, "opened_at_or_above_target"
-            )
-        fill_price = candle.open * (1 + self.market_profile.slippage_rate)
+        is_long = plan.side is TradeSide.LONG
+        # An open already beyond the stop or the target means the idea is void before entry.
+        if (candle.open <= plan.stop) if is_long else (candle.open >= plan.stop):
+            reason = "opened_at_or_below_stop" if is_long else "opened_at_or_above_stop"
+            return self._event(VenueEventKind.CANCEL, candle.timestamp, plan.symbol, reason)
+        if (candle.open >= plan.target) if is_long else (candle.open <= plan.target):
+            reason = "opened_at_or_above_target" if is_long else "opened_at_or_below_target"
+            return self._event(VenueEventKind.CANCEL, candle.timestamp, plan.symbol, reason)
+        # Slippage always works against the desk: a buy fills higher, a short sale lower.
+        slippage_direction = 1 if is_long else -1
+        fill_price = candle.open * (1 + slippage_direction * self.market_profile.slippage_rate)
         notional = plan.units * fill_price
         commission = notional * self.market_profile.commission_rate
         if notional + commission > self.cash:
             return self._event(
                 VenueEventKind.CANCEL, candle.timestamp, plan.symbol, "insufficient_cash_at_open"
             )
+        # Long: pay for the shares. Short: set the same amount aside as collateral.
         self.cash -= notional + commission
-        slippage_cost = plan.units * (fill_price - candle.open)
+        slippage_cost = plan.units * abs(fill_price - candle.open)
         self.positions[plan.symbol] = Position(
             symbol=plan.symbol,
+            side=plan.side,
             units=plan.units,
             entry_price=fill_price,
             stop=plan.stop,
@@ -192,7 +209,7 @@ class PaperVenue:
             entry_slippage_cost=slippage_cost,
             planned_risk_amount=plan.risk_amount,
             strategy=plan.strategy,
-            target_follows_upper_band=plan.target_follows_upper_band,
+            target_follows_band=plan.target_follows_band,
             planned_target=plan.target,
             highest_price=fill_price,
             lowest_price=fill_price,
@@ -221,11 +238,21 @@ class PaperVenue:
             return False
         if position.bars_held < position.stalled_trade_sessions:
             return False
-        if session_close >= position.entry_price:
+        is_long = position.side is TradeSide.LONG
+        is_losing = (
+            session_close < position.entry_price
+            if is_long
+            else session_close > position.entry_price
+        )
+        if not is_losing:
             return False
         risk_per_unit = position.planned_risk_amount / position.units
-        best_progress_r = (position.highest_price - position.entry_price) / risk_per_unit
-        return best_progress_r < position.stalled_trade_progress_r
+        best_move = (
+            position.highest_price - position.entry_price
+            if is_long
+            else position.entry_price - position.lowest_price
+        )
+        return best_move / risk_per_unit < position.stalled_trade_progress_r
 
     def _check_exit(
         self, position: Position, candle: Candle, position_opened_this_bar: bool
@@ -237,13 +264,24 @@ class PaperVenue:
         if position.exit_at_next_open:
             # Decided at the previous close: sold at this open, wherever it is.
             return self._close(position, candle.open, candle.timestamp, ExitReason.STALLED)
-        if not position_opened_this_bar and candle.open <= position.stop:
+        if position.side is TradeSide.LONG:
+            opens_through_stop = candle.open <= position.stop
+            touches_stop = candle.low <= position.stop
+            opens_through_target = candle.open >= position.target
+            touches_target = candle.high >= position.target
+        else:
+            # Mirror image: a short is stopped by a rise and reaches its target on a fall.
+            opens_through_stop = candle.open >= position.stop
+            touches_stop = candle.high >= position.stop
+            opens_through_target = candle.open <= position.target
+            touches_target = candle.low <= position.target
+        if not position_opened_this_bar and opens_through_stop:
             return self._close(position, candle.open, candle.timestamp, ExitReason.STOP)
-        if candle.low <= position.stop:
+        if touches_stop:
             return self._close(position, position.stop, candle.timestamp, ExitReason.STOP)
-        if not position_opened_this_bar and candle.open >= position.target:
+        if not position_opened_this_bar and opens_through_target:
             return self._close(position, candle.open, candle.timestamp, ExitReason.TARGET)
-        if candle.high >= position.target:
+        if touches_target:
             return self._close(position, position.target, candle.timestamp, ExitReason.TARGET)
         return None
 
@@ -254,16 +292,22 @@ class PaperVenue:
         record the trade with its profit or loss in money and in R, and add any loss to today's
         realised loss.
         """
-        exit_price = reference_price * (1 - self.market_profile.slippage_rate)
-        proceeds = position.units * exit_price
-        commission = proceeds * self.market_profile.commission_rate
-        self.cash += proceeds - commission
-        exit_slippage_cost = position.units * (reference_price - exit_price)
+        is_long = position.side is TradeSide.LONG
+        # Slippage works against the desk on the way out too: a long sells lower, a short
+        # buys back higher.
+        slippage_direction = -1 if is_long else 1
+        exit_price = reference_price * (1 + slippage_direction * self.market_profile.slippage_rate)
+        commission = position.units * exit_price * self.market_profile.commission_rate
+        # Long: the sale proceeds come back. Short: the collateral comes back, plus or minus
+        # the price move.
+        self.cash += self._position_value(position, exit_price) - commission
+        exit_slippage_cost = position.units * abs(reference_price - exit_price)
+        price_gain_per_unit = (
+            exit_price - position.entry_price if is_long else position.entry_price - exit_price
+        )
         # Slippage is already inside the entry and exit prices; commissions are not.
         profit_and_loss = round(
-            position.units * (exit_price - position.entry_price)
-            - position.entry_commission
-            - commission,
+            position.units * price_gain_per_unit - position.entry_commission - commission,
             MONEY_DECIMAL_PLACES,
         )
         total_cost = (
@@ -278,9 +322,24 @@ class PaperVenue:
         highest_price = max(position.highest_price, reference_price)
         lowest_price = min(position.lowest_price, reference_price)
         risk_per_unit = position.planned_risk_amount / position.units
+        best_price, worst_price = (
+            (highest_price, lowest_price) if is_long else (lowest_price, highest_price)
+        )
+        favorable_move = abs(best_price - position.entry_price)
+        adverse_move = abs(worst_price - position.entry_price)
+        # A price that never went the right (or wrong) way leaves that excursion at zero.
+        if (best_price < position.entry_price) if is_long else (best_price > position.entry_price):
+            favorable_move = 0.0
+        if (
+            (worst_price > position.entry_price)
+            if is_long
+            else (worst_price < position.entry_price)
+        ):
+            adverse_move = 0.0
         self.closed_trades.append(
             ClosedTrade(
                 symbol=position.symbol,
+                side=position.side,
                 strategy=position.strategy,
                 units=position.units,
                 entry_price=position.entry_price,
@@ -291,12 +350,8 @@ class PaperVenue:
                 opened_at=position.opened_at,
                 closed_at=closed_at,
                 bars_held=position.bars_held,
-                maximum_favorable_excursion_r=round(
-                    max(highest_price - position.entry_price, 0.0) / risk_per_unit, 4
-                ),
-                maximum_adverse_excursion_r=round(
-                    min(lowest_price - position.entry_price, 0.0) / risk_per_unit, 4
-                ),
+                maximum_favorable_excursion_r=round(favorable_move / risk_per_unit, 4),
+                maximum_adverse_excursion_r=round(-adverse_move / risk_per_unit, 4),
                 exit_reason=reason,
                 total_cost=round(total_cost, MONEY_DECIMAL_PLACES),
                 profit_and_loss=profit_and_loss,

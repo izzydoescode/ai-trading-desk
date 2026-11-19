@@ -883,3 +883,28 @@ def test_desk_backtest_can_keep_a_journal_and_reports_dollar_averages(
     assert len(journal.trades(run_id)) == 1
     assert len(journal.decisions(run_id)) == 1
     journal.close()
+
+
+def test_sides_option_limits_which_way_the_desk_may_trade(monkeypatch, tmp_path, capsys):
+    """Verifies: --sides long keeps the uptrend fixture's long trade, and --sides short takes
+    nothing in that same uptrend because a short would be against the trend.
+    """
+    results = {}
+    for sides in ("long", "short", "both"):
+        exit_code = run_cli_in_process(
+            monkeypatch,
+            *BACKTEST_ARGUMENTS,
+            "--holdout-ledger",
+            str(tmp_path / f"{sides}.jsonl"),
+            "--sides",
+            sides,
+        )
+        assert exit_code == 0
+        results[sides] = json.loads(capsys.readouterr().out)
+    assert results["long"]["in_sample"]["trade_count"] == 1
+    assert results["short"]["in_sample"]["trade_count"] == 0
+    assert results["both"]["in_sample"]["trade_count"] == 1
+    assert results["long"]["setup_rules"]["allowed_sides"] == ["LONG"]
+    assert results["both"]["setup_rules"]["allowed_sides"] == ["LONG", "SHORT"]
+    # A different side setting is a different configuration for the holdout ledger.
+    assert len({result["configuration_hash"] for result in results.values()}) == 3
