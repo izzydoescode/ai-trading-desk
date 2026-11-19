@@ -245,6 +245,34 @@ describe("chart", () => {
     expect(screen.getByText(/▼ -2\.50% 20D/)).toHaveClass("tone-down");
   });
 
+  it("names the setup NEO found and keeps its notes on hover", () => {
+    const candles = cloneSnapshot().candles_by_symbol.AAPL!;
+    const { rerender } = render(
+      <ChartPanel
+        symbol="AAPL"
+        candles={candles}
+        levels={[]}
+        report={reportWith((report) => {
+          report.chart.strategy = "BREAKOUT";
+          report.chart.strategy_notes = ["BREAKOUT: triggered above the 55-session high."];
+        })}
+      />,
+    );
+    expect(screen.getByText("BREAKOUT SETUP")).toHaveAttribute(
+      "title",
+      "BREAKOUT: triggered above the 55-session high.",
+    );
+    rerender(
+      <ChartPanel
+        symbol="AAPL"
+        candles={candles}
+        levels={[]}
+        report={reportWith((report) => (report.chart.strategy = null))}
+      />,
+    );
+    expect(screen.queryByText(/SETUP$/)).not.toBeInTheDocument();
+  });
+
   it("survives a single flat bar", () => {
     const flat = { timestamp: "2025-01-02T21:00:00Z", open: 10, high: 10, low: 10, close: 10, volume: 1 };
     render(<ChartPanel symbol="AAPL" candles={[flat]} levels={[]} report={undefined} />);

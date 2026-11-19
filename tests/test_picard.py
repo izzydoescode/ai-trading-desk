@@ -41,10 +41,11 @@ def scout_report(verdict=ScoutVerdict.WATCH):
     )
 
 
-def setup(counter_case=Classification.NEUTRAL):
+def setup(counter_case=Classification.NEUTRAL, strategy="TREND_CONTINUATION"):
     return ChartSetup(
         thesis=analysis(),
         counter_case=analysis(counter_case),
+        strategy=strategy,
         entry_reference=100.0,
         stop=95.0,
         target=112.5,
@@ -172,3 +173,43 @@ def test_full_agreement_records_no_dissent():
     )
     assert decision.action is DecisionAction.TRADE
     assert decision.dissent == []
+
+
+def scout_with(verdict, signals=()):
+    from trading_desk.models import ScoutSignal
+
+    return ScoutReport(
+        symbol="AAPL",
+        verdict=verdict,
+        score=None if verdict is ScoutVerdict.NEED_MORE_DATA else 0.4,
+        signals=[
+            ScoutSignal(kind=kind, level=100.0, is_bullish=is_bullish, volume_confirmed=confirmed)
+            for kind, is_bullish, confirmed in signals
+        ],
+        reasons=["r"],
+        evidence=[],
+    )
+
+
+def decide_reversion(reversion_scout_report):
+    return decide(scout_report=reversion_scout_report, setup=setup(strategy="BOLLINGER_REVERSION"))
+
+
+def test_a_reversion_setup_may_trade_without_a_trend_watch_rating():
+    decision = decide_reversion(scout_with(ScoutVerdict.SKIP))
+    assert decision.action is DecisionAction.TRADE
+
+
+def test_a_trend_setup_still_needs_the_watch_rating():
+    decision = decide(scout_report=scout_with(ScoutVerdict.SKIP))
+    assert decision.action is DecisionAction.WAIT
+
+
+def test_a_reversion_setup_waits_on_a_heavy_volume_breakdown_or_missing_data():
+    breakdown = scout_with(ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, True)])
+    assert decide_reversion(breakdown).action is DecisionAction.WAIT
+    assert decide_reversion(scout_with(ScoutVerdict.NEED_MORE_DATA)).action is DecisionAction.WAIT
+    quiet_breakdown = scout_with(
+        ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, False)]
+    )
+    assert decide_reversion(quiet_breakdown).action is DecisionAction.TRADE

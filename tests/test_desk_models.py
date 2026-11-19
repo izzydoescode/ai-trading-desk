@@ -85,10 +85,26 @@ def test_chart_setup_rejects_partial_or_incoherent_levels(levels):
         ChartSetup(
             thesis=bullish_analysis(),
             counter_case=bullish_analysis(),
+            strategy="TREND_CONTINUATION",
             confirmation="c",
             invalidation="i",
             **levels,
         )
+
+
+def test_chart_setup_levels_and_strategy_go_together():
+    levels = {"entry_reference": 100.0, "stop": 95.0, "target": 115.0}
+    common = {
+        "thesis": bullish_analysis(),
+        "counter_case": bullish_analysis(),
+        "confirmation": "c",
+        "invalidation": "i",
+    }
+    assert ChartSetup(**common, strategy="BREAKOUT", **levels).has_trade_levels
+    with pytest.raises(ValidationError, match="go together"):
+        ChartSetup(**common, **levels)
+    with pytest.raises(ValidationError, match="go together"):
+        ChartSetup(**common, strategy="BREAKOUT")
 
 
 def test_chart_setup_without_levels_is_valid_and_reports_it():

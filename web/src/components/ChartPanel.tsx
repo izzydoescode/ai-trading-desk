@@ -1,4 +1,4 @@
-import type { PriceLevel } from "../derive";
+import { STRATEGY_WORDS, type PriceLevel } from "../derive";
 import { directionGlyph, price, shortDate, signedPercent } from "../format";
 import type { Candle, DeskReport } from "../types";
 
@@ -39,6 +39,11 @@ export function ChartPanel({ symbol, candles, levels, report }: ChartPanelProps)
           <span className="tag agent-neo">F2 CHART</span>
           <span className="symbol">{symbol ?? "–"}</span>
           <span className="label">daily bars</span>
+          {report?.chart.strategy && (
+            <span className="badge tone-up" title={report.chart.strategy_notes?.join("\n")}>
+              {STRATEGY_WORDS[report.chart.strategy]} SETUP
+            </span>
+          )}
         </div>
         <div className="readings">
           <span>

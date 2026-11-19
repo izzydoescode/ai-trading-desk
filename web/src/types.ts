@@ -97,6 +97,10 @@ export interface DeskReport {
   chart: {
     thesis: Analysis;
     counter_case: Analysis;
+    /** Entry pattern that produced the levels; null when none qualified. */
+    strategy?: "BREAKOUT" | "TREND_CONTINUATION" | "BOLLINGER_REVERSION" | null;
+    /** One line per pattern NEO considered, with why it did or did not trigger. */
+    strategy_notes?: string[];
     support: number | null;
     resistance: number | null;
     entry_reference: number | null;
