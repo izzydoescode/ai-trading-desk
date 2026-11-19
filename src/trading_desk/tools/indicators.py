@@ -59,6 +59,13 @@ def relative_volume(candles: list[Candle], lookback_sessions: int) -> float | No
     return candles[-1].volume / average_prior_volume if average_prior_volume > 0 else None
 
 
+def day_change_percent(closes: list[float]) -> float | None:
+    """Latest close against the previous close, in percent. Unavailable with one session."""
+    if len(closes) < 2:
+        return None
+    return (closes[-1] / closes[-2] - 1) * 100
+
+
 def calculate(candles: list[Candle]) -> Indicators:
     """Compute every indicator from the bars: SMA20 and SMA50, Wilder RSI14 and ATR14, 20-session
     return, relative volume, the 20-session range, the latest and prior day's range, prior 20, 55
@@ -93,6 +100,8 @@ def calculate(candles: list[Candle]) -> Indicators:
         latest_low=candles[-1].low if candles else None,
         previous_high=candles[-2].high if len(candles) >= 2 else None,
         previous_low=candles[-2].low if len(candles) >= 2 else None,
+        previous_close=closes[-2] if len(closes) >= 2 else None,
+        day_change_pct=day_change_percent(closes),
         prior_high20=prior_extreme(candles, RANGE_LOOKBACK_SESSIONS, highest=True),
         prior_high55=prior_extreme(candles, BREAKOUT_LOOKBACK_SESSIONS, highest=True),
         prior_high252=prior_extreme(candles, YEAR_LOOKBACK_SESSIONS, highest=True),

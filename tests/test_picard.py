@@ -341,14 +341,12 @@ def test_crowd_hype_stops_a_long_but_not_a_short():
     assert decide_short(sentiment_report=hyped).action is DecisionAction.TRADE
 
 
-def test_a_short_band_trade_waits_on_a_heavy_volume_breakout_against_it():
+def test_a_short_band_trade_waits_on_a_heavy_volume_new_high_against_it():
     """Verifies: the band strategy's narrower scout gate mirrors for shorts: a volume-backed
-    breakout blocks it, a volume-backed breakdown does not.
+    new high blocks it, a volume-backed breakdown does not.
     """
     short_band_chart = make_short_chart_report(strategy="BOLLINGER_REVERSION")
-    squeezed = make_scout_report_with_signals(
-        ScoutVerdict.SKIP, [("BREAKOUT_ABOVE_PRIOR_DAY_HIGH", True, True)]
-    )
+    squeezed = make_scout_report_with_signals(ScoutVerdict.SKIP, [("NEW_52_WEEK_HIGH", True, True)])
     falling = make_scout_report_with_signals(
         ScoutVerdict.SKIP, [("BREAKDOWN_BELOW_PRIOR_DAY_LOW", False, True)]
     )
