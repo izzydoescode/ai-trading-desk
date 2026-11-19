@@ -23,6 +23,8 @@ These are uncalibrated rules. Whether any of them has an edge is a question for
 the backtest, and ODIN still decides whether the reward justifies the risk.
 """
 
+from enum import StrEnum
+
 from pydantic import ConfigDict, Field
 
 from trading_desk.agents import contrarian, technical
@@ -44,6 +46,19 @@ ALL_STRATEGIES = (
 )
 
 
+class MarketTrendRule(StrEnum):
+    """How the wider market's trend (the benchmark's, SPY for US stocks) limits the sides.
+
+    OFF: only the symbol's own trend picks the side.
+    SHORTS: a short also needs the market itself to be in a bearish trend.
+    BOTH: as SHORTS, and a long also needs the market not to be bearish.
+    """
+
+    OFF = "off"
+    SHORTS = "shorts"
+    BOTH = "both"
+
+
 class SetupRules(Model):
     """Which patterns NEO may use and how it places stops and targets."""
 
@@ -59,6 +74,8 @@ class SetupRules(Model):
     reversion_stop_atr_buffer: float = Field(default=0.5, gt=0)
     # Sides NEO may trade. Remove SHORT to run the desk long-only.
     allowed_sides: tuple[TradeSide, ...] = (TradeSide.LONG, TradeSide.SHORT)
+    # Whether the market's own trend must agree before a side is taken.
+    market_trend_rule: MarketTrendRule = MarketTrendRule.OFF
 
 
 DEFAULT_SETUP_RULES = SetupRules()
@@ -81,6 +98,48 @@ def overall_trend(indicators: Indicators) -> Classification:
     if sma20 < sma50 and close < sma50:
         return Classification.BEARISH
     return Classification.NEUTRAL
+
+
+def needs_market_trend(setup_rules: SetupRules) -> bool:
+    """Whether a decision under these rules has to look at the benchmark's trend at all.
+
+    Long-only with the rule limited to shorts never does, so it never fetches the benchmark.
+    """
+    if setup_rules.market_trend_rule is MarketTrendRule.BOTH:
+        return True
+    return (
+        setup_rules.market_trend_rule is MarketTrendRule.SHORTS
+        and TradeSide.SHORT in setup_rules.allowed_sides
+    )
+
+
+def market_trend_objection(
+    side: TradeSide, market_trend: Classification | None, setup_rules: SetupRules
+) -> str | None:
+    """Why the market's trend rules this side out, or None when it does not.
+
+    `market_trend=None` means the caller did not look (the rule is off or not needed). An
+    unknown market trend (INSUFFICIENT_DATA) never permits a side the rule protects: without
+    evidence the market agrees, the trade is not taken.
+    """
+    if market_trend is None or setup_rules.market_trend_rule is MarketTrendRule.OFF:
+        return None
+    market_words = market_trend.value.lower().replace("_", " ")
+    if side is TradeSide.SHORT and market_trend is not Classification.BEARISH:
+        return (
+            f"The market's own trend is {market_words}; shorts are taken only when the "
+            "market is in a bearish trend too."
+        )
+    if (
+        side is TradeSide.LONG
+        and setup_rules.market_trend_rule is MarketTrendRule.BOTH
+        and market_trend not in {Classification.BULLISH, Classification.NEUTRAL}
+    ):
+        return (
+            f"The market's own trend is {market_words}; longs are taken only when the "
+            "market is not in a bearish trend."
+        )
+    return None
 
 
 def _stop_and_target(close: float, side: TradeSide, indicators: Indicators, rules: SetupRules):
@@ -262,8 +321,12 @@ def analyze_chart(
     indicators: Indicators,
     blockers: list[str],
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
+    market_trend: Classification | None = None,
 ) -> ChartReport:
     """Build NEO's chart report for one symbol.
+
+    `market_trend` is the benchmark's trend at the same moment, supplied when the market-trend
+    rule is in play; a side the market does not support is dropped with a note saying why.
 
     Forms the technical thesis and its counter-case and reads the overall trend, which picks the
     side: bullish means long setups only, bearish means short setups only, anything else means
@@ -301,6 +364,11 @@ def analyze_chart(
         )
         side = None
     if data_is_usable and side is not None:
+        objection = market_trend_objection(side, market_trend, setup_rules)
+        if objection is not None:
+            strategy_notes.append(objection)
+            side = None
+    if data_is_usable and side is not None:
         for strategy in setup_rules.enabled_strategies:
             if strategy is SetupStrategy.BREAKOUT:
                 levels, note = _breakout(indicators, setup_rules, side)
@@ -326,6 +394,7 @@ def analyze_chart(
             thesis=thesis,
             counter_case=counter_case,
             trend=trend,
+            market_trend=market_trend,
             strategy_notes=strategy_notes,
             support=indicators.low20,
             resistance=indicators.high20,
@@ -336,6 +405,7 @@ def analyze_chart(
         thesis=thesis,
         counter_case=counter_case,
         trend=trend,
+        market_trend=market_trend,
         strategy_notes=strategy_notes,
         support=indicators.low20,
         resistance=indicators.high20,

@@ -425,3 +425,109 @@ def test_a_stop_at_or_below_zero_disqualifies_the_strategy():
     assert chart.setup is None
     assert "stop or target would be at or below zero" in notes_for(chart, "BREAKOUT")
     assert "stop or target would be at or below zero" in notes_for(chart, "TREND_CONTINUATION")
+
+
+SHORTS_NEED_A_BEARISH_MARKET = SetupRules(market_trend_rule="shorts")
+BOTH_SIDES_FOLLOW_THE_MARKET = SetupRules(market_trend_rule="both")
+
+
+@pytest.mark.parametrize(
+    ("market_trend", "takes_the_short"),
+    [
+        (Classification.BEARISH, True),
+        (Classification.NEUTRAL, False),
+        (Classification.BULLISH, False),
+        (Classification.INSUFFICIENT_DATA, False),
+    ],
+)
+def test_a_short_is_taken_only_when_the_market_is_bearish_too(market_trend, takes_the_short):
+    """Verifies: under the market-trend rule a symbol in a downtrend is shorted only while the
+    benchmark is itself bearish; a rising, flat or unreadable market leaves no setup and a
+    note saying why.
+    """
+    chart = analyze_chart(
+        make_indicators(**BEARISH),
+        blockers=[],
+        setup_rules=SHORTS_NEED_A_BEARISH_MARKET,
+        market_trend=market_trend,
+    )
+    assert chart.trend is Classification.BEARISH
+    assert chart.market_trend is market_trend
+    if takes_the_short:
+        assert chart.setup.side.value == "SHORT"
+    else:
+        assert chart.setup is None
+        assert chart.strategy_notes == [
+            f"The market's own trend is {market_trend.value.lower().replace('_', ' ')}; shorts "
+            "are taken only when the market is in a bearish trend too."
+        ]
+
+
+def test_the_shorts_rule_leaves_longs_alone_whatever_the_market_does():
+    """Verifies: with the rule limited to shorts, an uptrend is still bought in a bearish or
+    unreadable market.
+    """
+    for market_trend in (Classification.BEARISH, Classification.INSUFFICIENT_DATA):
+        chart = analyze_chart(
+            make_indicators(),
+            blockers=[],
+            setup_rules=SHORTS_NEED_A_BEARISH_MARKET,
+            market_trend=market_trend,
+        )
+        assert chart.setup.side.value == "LONG"
+
+
+@pytest.mark.parametrize(
+    ("market_trend", "takes_the_long"),
+    [
+        (Classification.BULLISH, True),
+        (Classification.NEUTRAL, True),
+        (Classification.BEARISH, False),
+        (Classification.INSUFFICIENT_DATA, False),
+    ],
+)
+def test_with_the_rule_on_both_sides_a_long_needs_a_market_that_is_not_bearish(
+    market_trend, takes_the_long
+):
+    """Verifies: the stricter rule also stops longs in a bearish or unreadable market, and
+    says so; a bullish or neutral market lets them through.
+    """
+    chart = analyze_chart(
+        make_indicators(),
+        blockers=[],
+        setup_rules=BOTH_SIDES_FOLLOW_THE_MARKET,
+        market_trend=market_trend,
+    )
+    if takes_the_long:
+        assert chart.setup.side.value == "LONG"
+    else:
+        assert chart.setup is None
+        assert (
+            "longs are taken only when the market is not in a bearish trend"
+            in (chart.strategy_notes[0])
+        )
+
+
+def test_the_market_trend_rule_is_off_by_default_and_ignored_when_not_supplied():
+    """Verifies: the default rules never consult the market, a supplied market trend is
+    recorded but changes nothing while the rule is off, and the benchmark is only needed
+    when a protected side can actually be traded.
+    """
+    from trading_desk.agents.neo import MarketTrendRule, needs_market_trend
+
+    assert SetupRules().market_trend_rule is MarketTrendRule.OFF
+    rule_off = analyze_chart(
+        make_indicators(**BEARISH), blockers=[], market_trend=Classification.BULLISH
+    )
+    assert rule_off.setup.side.value == "SHORT"
+    assert rule_off.market_trend is Classification.BULLISH
+    not_supplied = analyze_chart(
+        make_indicators(**BEARISH), blockers=[], setup_rules=SHORTS_NEED_A_BEARISH_MARKET
+    )
+    assert not_supplied.setup.side.value == "SHORT" and not_supplied.market_trend is None
+
+    assert needs_market_trend(SetupRules()) is False
+    assert needs_market_trend(SHORTS_NEED_A_BEARISH_MARKET) is True
+    long_only = SetupRules(allowed_sides=("LONG",), market_trend_rule="shorts")
+    assert needs_market_trend(long_only) is False
+    assert needs_market_trend(SetupRules(allowed_sides=("LONG",), market_trend_rule="both")) is True

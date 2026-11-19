@@ -261,6 +261,35 @@ describe("watchlist and journal", () => {
 });
 
 describe("chart", () => {
+  it("shows the market's own trend when the market-trend rule looked at it", () => {
+    const { rerender } = render(
+      <ChartPanel symbol="AAPL" candles={[]} levels={[]} report={reportWith(() => undefined)} />,
+    );
+    expect(screen.queryByText(/^MARKET /)).not.toBeInTheDocument();
+    rerender(
+      <ChartPanel
+        symbol="AAPL"
+        candles={[]}
+        levels={[]}
+        report={reportWith((report) => {
+          report.chart.market_trend = "BEARISH";
+        })}
+      />,
+    );
+    expect(screen.getByText("MARKET BEARISH")).toHaveClass("tone-down");
+    rerender(
+      <ChartPanel
+        symbol="AAPL"
+        candles={[]}
+        levels={[]}
+        report={reportWith((report) => {
+          report.chart.market_trend = "INSUFFICIENT_DATA";
+        })}
+      />,
+    );
+    expect(screen.getByText("MARKET UNKNOWN")).toHaveClass("tone-dim");
+  });
+
   it("invites a replay when there are no bars", () => {
     render(<ChartPanel symbol={null} candles={[]} levels={[]} report={undefined} />);
     expect(screen.getByText(/No bars yet. Start a replay to see the desk trade/)).toBeInTheDocument();

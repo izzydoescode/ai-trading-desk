@@ -24,7 +24,7 @@ from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from trading_desk.agents.neo import DEFAULT_SETUP_RULES, SetupRules
 from trading_desk.desk import DEFAULT_RISK_LIMITS
-from trading_desk.engine import BarUpdate, run_engine
+from trading_desk.engine import BarUpdate, run_engine, symbols_to_preload
 from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import DeskEvent, Model, RiskLimits, VenueEvent
 from trading_desk.observability import get_logger
@@ -503,7 +503,10 @@ class DeskSession:
         """
         now = self._clock()
         is_first_check = last_bar_time is None
-        history_provider = await preload_history(self.data_provider, settings.symbols)
+        history_provider = await preload_history(
+            self.data_provider,
+            symbols_to_preload(settings.symbols, self.market_profile, self.setup_rules),
+        )
         if is_first_check:
             await self._load_chart_history(history_provider, settings.symbols)
         engine_result = await run_engine(

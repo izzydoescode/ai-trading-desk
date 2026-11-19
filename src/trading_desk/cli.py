@@ -12,7 +12,7 @@ import anthropic
 import httpx
 import uvicorn
 
-from trading_desk.agents.neo import SetupRules
+from trading_desk.agents.neo import MarketTrendRule, SetupRules
 from trading_desk.backtest.runner import (
     BacktestReport,
     HoldoutAlreadyUsedError,
@@ -179,8 +179,13 @@ def build_data_provider(args, client: httpx.AsyncClient) -> MarketDataProvider:
 
 
 def build_setup_rules(args) -> SetupRules:
-    """NEO's rules for this run: the default strategies, limited to the sides asked for."""
-    return SetupRules(allowed_sides=SIDE_CHOICES[args.sides])
+    """NEO's rules for this run: the default strategies, limited to the sides asked for, with
+    the market-trend rule chosen on the command line.
+    """
+    return SetupRules(
+        allowed_sides=SIDE_CHOICES[args.sides],
+        market_trend_rule=MarketTrendRule(args.market_trend),
+    )
 
 
 def build_news_feed(args, client: httpx.AsyncClient) -> NewsFeed | None:
@@ -654,6 +659,14 @@ def build_parser() -> argparse.ArgumentParser:
             default="long",
             help="Sides NEO may trade: long only (default), short only, or both (longs in "
             "uptrends, shorts in downtrends)",
+        )
+        desk_command.add_argument(
+            "--market-trend",
+            choices=[rule.value for rule in MarketTrendRule],
+            default=MarketTrendRule.SHORTS.value,
+            help="How the benchmark's own trend limits the sides: shorts (default) takes a "
+            "short only when the benchmark is in a bearish trend too; both also takes a long "
+            "only when the benchmark is not bearish; off ignores the benchmark",
         )
     return parser
 

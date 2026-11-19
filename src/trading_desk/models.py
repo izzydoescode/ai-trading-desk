@@ -318,6 +318,9 @@ class ChartReport(Model):
     # The overall trend decides which side NEO may trade: BULLISH allows longs only,
     # BEARISH allows shorts only, anything else allows nothing.
     trend: Classification = Classification.INSUFFICIENT_DATA
+    # The benchmark's trend at the same moment, when the market-trend rule looked at it.
+    # None means the rule was not in play for this decision.
+    market_trend: Classification | None = None
     support: float | None = Field(default=None, gt=0)
     resistance: float | None = Field(default=None, gt=0)
     # One line per pattern considered: why it triggered or what was missing.

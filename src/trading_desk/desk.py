@@ -32,6 +32,7 @@ from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import (
     AccountSnapshot,
     ChartReport,
+    Classification,
     Decision,
     DecisionAction,
     DeskReport,
@@ -137,9 +138,42 @@ def build_desk_graph(
         scout_report = hawkeye.scout(state["symbol"], state["indicators"], state["blockers"])
         return {"scout": scout_report, "trace": trace(state, "hawkeye", start)}
 
-    def run_neo(state: DeskState):
+    # One benchmark read per evaluation time, shared by every symbol decided at that time.
+    market_trend_reads: dict[datetime, asyncio.Task] = {}
+
+    async def read_market_trend(as_of: datetime) -> Classification:
+        """The benchmark's trend at `as_of`, from bars up to that moment only. Any failure to
+        read it is INSUFFICIENT_DATA, which the market-trend rule treats as "do not trade".
+        """
+        _, benchmark_indicators, error = await load_market_data(
+            data_provider, market_profile.benchmark_symbol, as_of
+        )
+        if error is not None:
+            logger.warning(
+                "Market trend unavailable benchmark=%s as_of=%s error=%s",
+                market_profile.benchmark_symbol,
+                as_of.isoformat(),
+                error,
+            )
+            return Classification.INSUFFICIENT_DATA
+        return neo.overall_trend(benchmark_indicators)
+
+    async def run_neo(state: DeskState):
+        """NEO's graph step: read the market's trend when the rules call for it, then build the
+        chart report.
+        """
         start = perf_counter()
-        chart_report = neo.analyze_chart(state["indicators"], state["blockers"], setup_rules)
+        market_trend = None
+        if neo.needs_market_trend(setup_rules):
+            as_of = state["as_of"]
+            if as_of not in market_trend_reads:
+                # Decisions move forward in time: only the current moment is worth keeping.
+                market_trend_reads.clear()
+                market_trend_reads[as_of] = asyncio.ensure_future(read_market_trend(as_of))
+            market_trend = await market_trend_reads[as_of]
+        chart_report = neo.analyze_chart(
+            state["indicators"], state["blockers"], setup_rules, market_trend
+        )
         return {"chart": chart_report, "trace": trace(state, "neo", start)}
 
     async def run_snowden(state: DeskState):
