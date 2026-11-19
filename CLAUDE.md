@@ -104,6 +104,10 @@ All domain types inherit a base `Model` with `extra="forbid"` and `allow_inf_nan
 
 NEO's output is a `ChartReport`: thesis, counter-case, support/resistance, one note per strategy considered, and an optional `TradeSetup`. A `TradeSetup` requires its strategy, entry, stop, target, confirmation and invalidation, so a partial setup cannot be constructed; when no pattern triggers the report has `setup=None` and must say what it is `watch_for`. ODIN then fails "Invalidation level set" and the idea is rejected. `DeskReport.schema_version` is `3.0`.
 
+### Cutting a trade early
+
+A trade does not have to reach its stop to be closed. `RiskLimits.stalled_trade_sessions` (default 5) and `stalled_trade_progress_r` (default 0.5) define the rule, ODIN copies it onto the plan, and `PaperVenue._has_stalled` applies it at each session's close: held that many full sessions, closing below entry, and never ahead by that fraction of its risk means it is sold at the next open with exit reason `STALLED`. A trade that is ahead, or has already shown it can move, keeps its stop and target. `None` turns the rule off. The decision uses only bars up to the close; the fill is the following open.
+
 ### Trade records
 
 Everything needed to review a trade is kept. `ClosedTrade` carries the strategy, the planned stop, target and risk, bars held, exit reason, costs, P&L in dollars and in R, and the maximum favourable and adverse excursion in R. The journal (`paper/journal.py`, SQLite) stores every desk event with its reason, every closed trade, and, in `trade_decisions`, the full six-agent report behind each TRADE (indicators, every agent's view, every risk check, the plan; the raw bars are left out). `desk serve` keeps a journal at `data/journal.sqlite` by default (`--no-journal` to turn it off); `desk backtest --journal PATH` does the same for a backtest. `PerformanceMetrics` reports average and largest win and loss in dollars, average bars held, and `results_by_strategy`.

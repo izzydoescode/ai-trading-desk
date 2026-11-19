@@ -187,3 +187,18 @@ def test_account_too_small_for_one_unit_is_rejected():
     report = evaluate(account_snapshot=make_account_snapshot(equity=400.0, cash=400.0))
     assert report.verdict is RiskVerdict.REJECT
     assert "Position size" in report.failed_checks
+
+
+def test_the_approved_plan_carries_the_early_exit_rule_from_the_risk_limits():
+    """Verifies: ODIN copies the stalled-trade rule onto the plan, so the venue holds the
+    trade under the limits it was approved with; turning the rule off reaches the plan too.
+    """
+    default_plan = evaluate().plan
+    assert (default_plan.stalled_trade_sessions, default_plan.stalled_trade_progress_r) == (5, 0.5)
+    custom_plan = evaluate(
+        limits=RiskLimits(stalled_trade_sessions=3, stalled_trade_progress_r=0.25)
+    ).plan
+    assert (custom_plan.stalled_trade_sessions, custom_plan.stalled_trade_progress_r) == (3, 0.25)
+    assert (
+        evaluate(limits=RiskLimits(stalled_trade_sessions=None)).plan.stalled_trade_sessions is None
+    )

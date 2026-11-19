@@ -312,3 +312,88 @@ def test_a_band_following_trade_keeps_the_target_it_was_planned_with():
     closed_trade = paper_venue.closed_trades[0]
     assert closed_trade.planned_target == 110.0
     assert closed_trade.exit_price == pytest.approx(104.0)
+
+
+def hold_flat_and_losing(paper_venue, sessions, close=99.0, first_day=1):
+    """Test helper (not a test): feeds sessions that drift just under the 100 entry without
+    reaching the 95 stop or making any progress, and returns every venue event.
+    """
+    events = []
+    for day in range(first_day, first_day + sessions):
+        events += paper_venue.process_bar(
+            "AAPL", make_candle(day, open_price=close, high=100.4, low=98.5, close=close)
+        )
+    return events
+
+
+def test_a_trade_that_never_got_going_is_sold_early_instead_of_waiting_for_its_stop():
+    """Verifies: after the agreed number of sessions, a trade closing below its entry that
+    never reached half its risk in profit is sold at the next open, well short of the stop.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(stalled_trade_sessions=3), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=100.4, low=99, close=99))
+    assert hold_flat_and_losing(paper_venue, sessions=2, first_day=2) == []
+    assert paper_venue.positions["AAPL"].exit_at_next_open is True  # decided at the close
+    exit_events = paper_venue.process_bar(
+        "AAPL", make_candle(4, open_price=98.8, high=99.5, low=98, close=99)
+    )
+    assert [event.reason for event in exit_events] == ["STALLED"]
+    closed_trade = paper_venue.closed_trades[0]
+    assert closed_trade.exit_reason is ExitReason.STALLED
+    assert closed_trade.exit_price == pytest.approx(98.8)  # the next open, not the 95 stop
+    assert closed_trade.r_multiple == pytest.approx(-0.24)  # a quarter of the planned loss
+    assert closed_trade.bars_held == 3
+
+
+def test_early_exit_never_fires_before_the_agreed_number_of_sessions():
+    """Verifies: the trade is given its time: nothing happens before the session count."""
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(stalled_trade_sessions=5), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=100.4, low=99, close=99))
+    assert hold_flat_and_losing(paper_venue, sessions=3, first_day=2) == []
+    assert paper_venue.positions["AAPL"].exit_at_next_open is False
+    assert paper_venue.positions["AAPL"].bars_held == 4
+
+
+def test_a_trade_that_is_ahead_or_has_shown_progress_is_left_alone():
+    """Verifies: early exit is only for losers that never moved: a trade closing at or above
+    its entry, or one that already reached half its risk in profit, keeps its stop and target.
+    """
+    ahead = make_paper_venue()
+    ahead.submit(make_trade_plan(stalled_trade_sessions=2), DAY_ONE)
+    ahead.process_bar("AAPL", make_candle(1, open_price=100, high=100.4, low=99.5, close=100))
+    hold_flat_and_losing(ahead, sessions=4, close=100.0, first_day=2)
+    assert ahead.positions["AAPL"].exit_at_next_open is False
+
+    showed_progress = make_paper_venue()
+    showed_progress.submit(make_trade_plan(stalled_trade_sessions=2), DAY_ONE)
+    # Entry 100, risk 5 a share: a high of 102.5 is exactly half the risk in profit.
+    showed_progress.process_bar(
+        "AAPL", make_candle(1, open_price=100, high=102.5, low=98.9, close=99)
+    )
+    hold_flat_and_losing(showed_progress, sessions=4, first_day=2)
+    assert showed_progress.positions["AAPL"].exit_at_next_open is False
+
+
+def test_early_exit_is_off_when_the_plan_does_not_ask_for_it():
+    """Verifies: with no session count on the plan, a stalled loser is held to its stop."""
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=100.4, low=99, close=99))
+    assert hold_flat_and_losing(paper_venue, sessions=20, first_day=2) == []
+    assert "AAPL" in paper_venue.positions
+
+
+def test_an_early_exit_at_a_gap_down_open_takes_that_open():
+    """Verifies: the early exit is filled at the next open even when that open is below the
+    stop, because the decision to sell was already made; it is recorded as STALLED.
+    """
+    paper_venue = make_paper_venue()
+    paper_venue.submit(make_trade_plan(stalled_trade_sessions=1), DAY_ONE)
+    paper_venue.process_bar("AAPL", make_candle(1, open_price=100, high=100.4, low=99, close=99))
+    exit_events = paper_venue.process_bar(
+        "AAPL", make_candle(2, open_price=93, high=94, low=92, close=93)
+    )
+    assert [event.reason for event in exit_events] == ["STALLED"]
+    assert paper_venue.closed_trades[0].exit_price == pytest.approx(93.0)

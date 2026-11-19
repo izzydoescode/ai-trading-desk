@@ -26,6 +26,7 @@ ACTION_HELPERS = {
     "evaluate",
     "events_of",
     "fetch_with_handler",
+    "hold_flat_and_losing",
     "no_sleep",
     "notes_for",
     "run",

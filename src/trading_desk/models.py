@@ -385,6 +385,12 @@ class RiskLimits(Model):
     maximum_daily_loss_fraction: float = Field(default=0.01, gt=0, le=0.2)
     maximum_position_fraction: float = Field(default=0.2, gt=0, le=1)
     kill_switch_engaged: bool = False
+    # Cut a trade that is not working before it reaches its stop: once it has been held
+    # this many full sessions, is closing below its entry, and has never been ahead by
+    # `stalled_trade_progress_r` times its risk, it is sold at the next open. None turns
+    # the rule off.
+    stalled_trade_sessions: int | None = Field(default=5, ge=1)
+    stalled_trade_progress_r: float = Field(default=0.5, ge=0)
 
 
 class AccountSnapshot(Model):
@@ -425,6 +431,9 @@ class TradePlan(Model):
     risk_amount: float = Field(gt=0)
     reward_to_risk: float = Field(gt=0)
     target_follows_upper_band: bool = False
+    # The early-exit rule this trade is held under, copied from the risk limits.
+    stalled_trade_sessions: int | None = Field(default=None, ge=1)
+    stalled_trade_progress_r: float = Field(default=0.5, ge=0)
 
     @model_validator(mode="after")
     def coherent_levels(self) -> Self:
@@ -554,6 +563,8 @@ class DeskReport(Model):
 class ExitReason(StrEnum):
     STOP = "STOP"
     TARGET = "TARGET"
+    # Sold early because the trade was held for a while, never got going and was losing.
+    STALLED = "STALLED"
     END_OF_RUN = "END_OF_RUN"
     KILL_SWITCH = "KILL_SWITCH"
 
@@ -577,6 +588,10 @@ class Position(Model):
     bars_held: int = Field(default=0, ge=0)
     highest_price: float = Field(gt=0)
     lowest_price: float = Field(gt=0)
+    stalled_trade_sessions: int | None = Field(default=None, ge=1)
+    stalled_trade_progress_r: float = Field(default=0.5, ge=0)
+    # Set at a session's close when the early-exit rule fires; acted on at the next open.
+    exit_at_next_open: bool = False
 
 
 class ClosedTrade(Model):

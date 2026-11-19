@@ -146,12 +146,15 @@ class PaperVenue:
                 events.append(exit_event)
             else:
                 # Still open after this bar: count it and remember how far price travelled.
-                self.positions[symbol] = position.model_copy(
+                position = position.model_copy(
                     update={
                         "bars_held": position.bars_held + 1,
                         "highest_price": max(position.highest_price, candle.high),
                         "lowest_price": min(position.lowest_price, candle.low),
                     }
+                )
+                self.positions[symbol] = position.model_copy(
+                    update={"exit_at_next_open": self._has_stalled(position, candle.close)}
                 )
         self._last_prices[symbol] = candle.close
         return events
@@ -193,6 +196,8 @@ class PaperVenue:
             planned_target=plan.target,
             highest_price=fill_price,
             lowest_price=fill_price,
+            stalled_trade_sessions=plan.stalled_trade_sessions,
+            stalled_trade_progress_r=plan.stalled_trade_progress_r,
         )
         return self._event(
             VenueEventKind.FILL,
@@ -203,6 +208,25 @@ class PaperVenue:
             units=plan.units,
         )
 
+    @staticmethod
+    def _has_stalled(position: Position, session_close: float) -> bool:
+        """Decide at a session's close whether to give up on the trade at the next open.
+
+        True only when all three hold: it has been held for the agreed number of full
+        sessions, it is closing below its entry price, and its best point so far never
+        reached the agreed fraction of its risk. A trade that is ahead, or that has
+        already shown it can move, is left to its stop and target.
+        """
+        if position.stalled_trade_sessions is None:
+            return False
+        if position.bars_held < position.stalled_trade_sessions:
+            return False
+        if session_close >= position.entry_price:
+            return False
+        risk_per_unit = position.planned_risk_amount / position.units
+        best_progress_r = (position.highest_price - position.entry_price) / risk_per_unit
+        return best_progress_r < position.stalled_trade_progress_r
+
     def _check_exit(
         self, position: Position, candle: Candle, position_opened_this_bar: bool
     ) -> VenueEvent | None:
@@ -210,6 +234,9 @@ class PaperVenue:
         """Decide whether this bar closes the position and at what price: a gap through the stop or
         target exits at the open, otherwise the stop is checked before the target.
         """
+        if position.exit_at_next_open:
+            # Decided at the previous close: sold at this open, wherever it is.
+            return self._close(position, candle.open, candle.timestamp, ExitReason.STALLED)
         if not position_opened_this_bar and candle.open <= position.stop:
             return self._close(position, candle.open, candle.timestamp, ExitReason.STOP)
         if candle.low <= position.stop:
