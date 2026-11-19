@@ -31,7 +31,7 @@ from trading_desk.llm import ReasoningProvider
 from trading_desk.markets import US_EQUITIES, MarketProfile
 from trading_desk.models import (
     AccountSnapshot,
-    ChartSetup,
+    ChartReport,
     Decision,
     DecisionAction,
     DeskReport,
@@ -71,7 +71,7 @@ class DeskState(TypedDict, total=False):
     blockers: list[str]
     limitations: list[str]
     scout: ScoutReport
-    chart: ChartSetup
+    chart: ChartReport
     news: NewsReport
     sentiment: SentimentReport
     risk: RiskReport
@@ -124,8 +124,8 @@ def build_desk_graph(
 
     def run_neo(state: DeskState):
         start = perf_counter()
-        setup = neo.build_setup(state["indicators"], state["blockers"], setup_rules)
-        return {"chart": setup, "trace": trace(state, "neo", start)}
+        chart_report = neo.analyze_chart(state["indicators"], state["blockers"], setup_rules)
+        return {"chart": chart_report, "trace": trace(state, "neo", start)}
 
     async def run_snowden(state: DeskState):
         start = perf_counter()

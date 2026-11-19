@@ -20,7 +20,14 @@ the backtest, and ODIN still decides whether the reward justifies the risk.
 from pydantic import ConfigDict, Field
 
 from trading_desk.agents import contrarian, technical
-from trading_desk.models import ChartSetup, Classification, Indicators, Model, SetupStrategy
+from trading_desk.models import (
+    ChartReport,
+    Classification,
+    Indicators,
+    Model,
+    SetupStrategy,
+    TradeSetup,
+)
 
 PRICE_DECIMAL_PLACES = 4
 ALL_STRATEGIES = (
@@ -131,11 +138,11 @@ def _bollinger_reversion(indicators: Indicators, rules: SetupRules) -> tuple[Lev
     ), "BOLLINGER_REVERSION: triggered at the lower band."
 
 
-def build_setup(
+def analyze_chart(
     indicators: Indicators,
     blockers: list[str],
     setup_rules: SetupRules = DEFAULT_SETUP_RULES,
-) -> ChartSetup:
+) -> ChartReport:
     thesis = technical.analyze(indicators)
     counter_case = contrarian.review(indicators, thesis, blockers)
     close, average_true_range = indicators.close, indicators.atr14
@@ -165,28 +172,30 @@ def build_setup(
             strategy_notes.append(note)
 
     if chosen is None:
-        return ChartSetup(
+        return ChartReport(
             thesis=thesis,
             counter_case=counter_case,
             strategy_notes=strategy_notes,
             support=indicators.low20,
             resistance=indicators.high20,
-            confirmation=(
-                "A daily close above SMA20 with SMA20 above SMA50 would confirm an uptrend."
+            watch_for=(
+                "A volume-backed close above a prior high, a close above SMA20 above SMA50, "
+                "or a touch of the lower Bollinger band while above SMA50."
             ),
-            invalidation="No long setup is active, so there is nothing to invalidate.",
         )
     strategy, (entry_reference, stop, target, confirmation, invalidation) = chosen
-    return ChartSetup(
+    return ChartReport(
         thesis=thesis,
         counter_case=counter_case,
-        strategy=strategy,
         strategy_notes=strategy_notes,
         support=indicators.low20,
         resistance=indicators.high20,
-        entry_reference=round(entry_reference, PRICE_DECIMAL_PLACES),
-        stop=round(stop, PRICE_DECIMAL_PLACES),
-        target=round(target, PRICE_DECIMAL_PLACES),
-        confirmation=confirmation,
-        invalidation=invalidation,
+        setup=TradeSetup(
+            strategy=strategy,
+            entry_reference=round(entry_reference, PRICE_DECIMAL_PLACES),
+            stop=round(stop, PRICE_DECIMAL_PLACES),
+            target=round(target, PRICE_DECIMAL_PLACES),
+            confirmation=confirmation,
+            invalidation=invalidation,
+        ),
     )

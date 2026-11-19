@@ -45,7 +45,7 @@ async def decide(scenario="trend", symbol="AAPL", as_of=AS_OF, account_snapshot=
 
 async def test_clean_trend_produces_an_approved_sized_trade():
     report = await decide()
-    assert report.schema_version == "2.0"
+    assert report.schema_version == "3.0"
     assert report.mode == "deterministic"
     assert report.scout.verdict is ScoutVerdict.WATCH
     assert report.risk.verdict is RiskVerdict.APPROVE

@@ -11,7 +11,7 @@ import math
 from trading_desk.markets import MarketProfile
 from trading_desk.models import (
     AccountSnapshot,
-    ChartSetup,
+    ChartReport,
     RiskCheck,
     RiskLimits,
     RiskReport,
@@ -27,12 +27,13 @@ MONEY_DECIMAL_PLACES = 2
 
 def evaluate(
     symbol: str,
-    setup: ChartSetup,
+    chart: ChartReport,
     account: AccountSnapshot,
     limits: RiskLimits,
     market_profile: MarketProfile,
     blockers: list[str],
 ) -> RiskReport:
+    setup = chart.setup
     checks = [
         RiskCheck(
             name="Kill switch",
@@ -71,13 +72,13 @@ def evaluate(
         RiskCheck(
             name="Invalidation level set",
             limit="required",
-            actual=f"{setup.stop:.4f}" if setup.has_trade_levels else "missing",
-            passed=setup.has_trade_levels,
+            actual=f"{setup.stop:.4f}" if setup is not None else "missing",
+            passed=setup is not None,
         )
     )
 
     plan = None
-    if setup.has_trade_levels:
+    if setup is not None:
         entry_reference, stop, target = setup.entry_reference, setup.stop, setup.target
         cost_per_unit = entry_reference * market_profile.round_trip_cost_rate
         risk_per_unit = entry_reference - stop + cost_per_unit

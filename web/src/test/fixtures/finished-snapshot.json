@@ -9,9 +9,11 @@
  "bar_count": 80,
  "bar_time": "2025-04-23T21:00:00+00:00",
  "error": null,
- "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+ "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
  "market": "US equities (daily)",
  "data_source": "bundled-synthetic-fixture",
+ "news_source": null,
+ "sentiment_source": null,
  "settings": {
   "symbols": [
    "AAPL"
@@ -31,7 +33,14 @@
  },
  "setup_rules": {
   "stop_atr_multiple": 2.0,
-  "target_reward_multiple": 3.0
+  "target_reward_multiple": 3.0,
+  "enabled_strategies": [
+   "BREAKOUT",
+   "TREND_CONTINUATION",
+   "BOLLINGER_REVERSION"
+  ],
+  "breakout_volume_ratio": 1.5,
+  "reversion_stop_atr_buffer": 0.5
  },
  "account": {
   "starting_cash": 100000.0,
@@ -1105,11 +1114,11 @@
  },
  "reports_by_symbol": {
   "AAPL": {
-   "schema_version": "2.0",
-   "run_id": "f54cac7c-42f8-473a-8c7d-33325dc15bd6",
+   "schema_version": "3.0",
+   "run_id": "c48f9e43-bfe8-4ba0-a3c7-f6a685043b9d",
    "symbol": "AAPL",
    "market": "US equities (daily)",
-   "analysis_timestamp": "2026-11-17T04:54:30.525629Z",
+   "analysis_timestamp": "2026-11-17T05:48:50.348964Z",
    "evaluated_as_of": "2025-03-13T21:00:00Z",
    "mode": "deterministic",
    "market_data_timestamp": "2025-03-13T21:00:00Z",
@@ -1123,7 +1132,17 @@
     "return20_pct": 3.9851729422242244,
     "relative_volume20": 1.0101010101010102,
     "high20": 119.4425,
-    "low20": 108.7596
+    "low20": 108.7596,
+    "latest_high": 117.6436,
+    "latest_low": 115.6436,
+    "previous_high": 118.6594,
+    "previous_low": 116.6594,
+    "prior_high20": 119.4425,
+    "prior_high55": null,
+    "prior_high252": null,
+    "prior_low252": null,
+    "bollinger_upper20": 119.55396545560544,
+    "bollinger_lower20": 108.76705454439457
    },
    "account": {
     "equity": 100000.0,
@@ -1143,12 +1162,23 @@
    "scout": {
     "symbol": "AAPL",
     "verdict": "WATCH",
-    "score": 0.8196,
+    "score": 0.7696,
+    "volume_surge": false,
+    "signals": [
+     {
+      "kind": "BREAKDOWN_BELOW_PRIOR_DAY_LOW",
+      "level": 116.6594,
+      "is_bullish": false,
+      "volume_confirmed": false
+     }
+    ],
     "reasons": [
      "Trend aligned: close above SMA20 above SMA50.",
      "20-session return +3.99%.",
      "RSI14 65.5 is firm without being overbought.",
-     "Volume 1.01x its 20-session average."
+     "Volume 1.01x its 20-session average.",
+     "Close broke down below the prior day's low 116.6594, without a volume surge: unconfirmed, low probability.",
+     "52-week range unavailable: 51 sessions of history."
     ],
     "evidence": [
      {
@@ -1237,11 +1267,20 @@
     },
     "support": 108.7596,
     "resistance": 119.4425,
-    "entry_reference": 116.6436,
-    "stop": 112.3502,
-    "target": 129.5238,
-    "confirmation": "Uptrend confirmed while the close holds above SMA20 114.1605.",
-    "invalidation": "A close below 112.3502 (2 ATR under entry) invalidates the idea."
+    "strategy_notes": [
+     "BREAKOUT: close is not above its prior 20-session high.",
+     "TREND_CONTINUATION: triggered, close above SMA20 above SMA50.",
+     "BOLLINGER_REVERSION: low did not reach the lower band 108.7671."
+    ],
+    "setup": {
+     "strategy": "TREND_CONTINUATION",
+     "entry_reference": 116.6436,
+     "stop": 112.3502,
+     "target": 129.5239,
+     "confirmation": "Uptrend confirmed while the close holds above SMA20 114.1605.",
+     "invalidation": "A close below 112.3502 (2 ATR under entry) invalidates the idea."
+    },
+    "watch_for": null
    },
    "news": {
     "verdict": "INSUFFICIENT_DATA",
@@ -1252,7 +1291,10 @@
     "red_flags": [],
     "missing_information": [
      "Dated news items for the symbol"
-    ]
+    ],
+    "bullish_headline_count": null,
+    "bearish_headline_count": null,
+    "neutral_headline_count": null
    },
    "sentiment": {
     "verdict": "INSUFFICIENT_DATA",
@@ -1326,7 +1368,7 @@
      "side": "LONG",
      "entry_reference": 116.6436,
      "stop": 112.3502,
-     "target": 129.5238,
+     "target": 129.5239,
      "units": 171.0,
      "notional": 19946.06,
      "risk_amount": 754.12,
@@ -1337,13 +1379,13 @@
    },
    "decision": {
     "action": "TRADE",
-    "summary": "Enter LONG 171 unit(s) at the next open. Stop 112.3502, target 129.5238, maximum loss 754.12.",
+    "summary": "Enter LONG 171 unit(s) at the next open. Stop 112.3502, target 129.5239, maximum loss 754.12.",
     "plan": {
      "symbol": "AAPL",
      "side": "LONG",
      "entry_reference": 116.6436,
      "stop": 112.3502,
-     "target": 129.5238,
+     "target": 129.5239,
      "units": 171.0,
      "notional": 19946.06,
      "risk_amount": 754.12,
@@ -1377,7 +1419,7 @@
  },
  "recent_events": [
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 0,
    "timestamp": "2025-01-02T21:00:00Z",
    "symbol": "AAPL",
@@ -1391,7 +1433,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 1,
    "timestamp": "2025-01-03T21:00:00Z",
    "symbol": "AAPL",
@@ -1405,7 +1447,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 2,
    "timestamp": "2025-01-06T21:00:00Z",
    "symbol": "AAPL",
@@ -1419,7 +1461,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 3,
    "timestamp": "2025-01-07T21:00:00Z",
    "symbol": "AAPL",
@@ -1433,7 +1475,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 4,
    "timestamp": "2025-01-08T21:00:00Z",
    "symbol": "AAPL",
@@ -1447,7 +1489,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 5,
    "timestamp": "2025-01-09T21:00:00Z",
    "symbol": "AAPL",
@@ -1461,7 +1503,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 6,
    "timestamp": "2025-01-10T21:00:00Z",
    "symbol": "AAPL",
@@ -1475,7 +1517,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 7,
    "timestamp": "2025-01-13T21:00:00Z",
    "symbol": "AAPL",
@@ -1489,7 +1531,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 8,
    "timestamp": "2025-01-14T21:00:00Z",
    "symbol": "AAPL",
@@ -1503,7 +1545,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 9,
    "timestamp": "2025-01-15T21:00:00Z",
    "symbol": "AAPL",
@@ -1517,7 +1559,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 10,
    "timestamp": "2025-01-16T21:00:00Z",
    "symbol": "AAPL",
@@ -1531,7 +1573,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 11,
    "timestamp": "2025-01-17T21:00:00Z",
    "symbol": "AAPL",
@@ -1545,7 +1587,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 12,
    "timestamp": "2025-01-20T21:00:00Z",
    "symbol": "AAPL",
@@ -1559,7 +1601,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 13,
    "timestamp": "2025-01-21T21:00:00Z",
    "symbol": "AAPL",
@@ -1573,7 +1615,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 14,
    "timestamp": "2025-01-22T21:00:00Z",
    "symbol": "AAPL",
@@ -1587,7 +1629,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 15,
    "timestamp": "2025-01-23T21:00:00Z",
    "symbol": "AAPL",
@@ -1601,7 +1643,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 16,
    "timestamp": "2025-01-24T21:00:00Z",
    "symbol": "AAPL",
@@ -1615,7 +1657,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 17,
    "timestamp": "2025-01-27T21:00:00Z",
    "symbol": "AAPL",
@@ -1629,7 +1671,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 18,
    "timestamp": "2025-01-28T21:00:00Z",
    "symbol": "AAPL",
@@ -1643,7 +1685,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 19,
    "timestamp": "2025-01-29T21:00:00Z",
    "symbol": "AAPL",
@@ -1657,7 +1699,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 20,
    "timestamp": "2025-01-30T21:00:00Z",
    "symbol": "AAPL",
@@ -1671,7 +1713,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 21,
    "timestamp": "2025-01-31T21:00:00Z",
    "symbol": "AAPL",
@@ -1685,7 +1727,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 22,
    "timestamp": "2025-02-03T21:00:00Z",
    "symbol": "AAPL",
@@ -1699,7 +1741,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 23,
    "timestamp": "2025-02-04T21:00:00Z",
    "symbol": "AAPL",
@@ -1713,7 +1755,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 24,
    "timestamp": "2025-02-05T21:00:00Z",
    "symbol": "AAPL",
@@ -1727,7 +1769,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 25,
    "timestamp": "2025-02-06T21:00:00Z",
    "symbol": "AAPL",
@@ -1741,7 +1783,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 26,
    "timestamp": "2025-02-07T21:00:00Z",
    "symbol": "AAPL",
@@ -1755,7 +1797,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 27,
    "timestamp": "2025-02-10T21:00:00Z",
    "symbol": "AAPL",
@@ -1769,7 +1811,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 28,
    "timestamp": "2025-02-11T21:00:00Z",
    "symbol": "AAPL",
@@ -1783,7 +1825,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 29,
    "timestamp": "2025-02-12T21:00:00Z",
    "symbol": "AAPL",
@@ -1797,7 +1839,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 30,
    "timestamp": "2025-02-13T21:00:00Z",
    "symbol": "AAPL",
@@ -1811,7 +1853,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 31,
    "timestamp": "2025-02-14T21:00:00Z",
    "symbol": "AAPL",
@@ -1825,7 +1867,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 32,
    "timestamp": "2025-02-17T21:00:00Z",
    "symbol": "AAPL",
@@ -1839,7 +1881,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 33,
    "timestamp": "2025-02-18T21:00:00Z",
    "symbol": "AAPL",
@@ -1853,7 +1895,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 34,
    "timestamp": "2025-02-19T21:00:00Z",
    "symbol": "AAPL",
@@ -1867,7 +1909,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 35,
    "timestamp": "2025-02-20T21:00:00Z",
    "symbol": "AAPL",
@@ -1881,7 +1923,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 36,
    "timestamp": "2025-02-21T21:00:00Z",
    "symbol": "AAPL",
@@ -1895,7 +1937,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 37,
    "timestamp": "2025-02-24T21:00:00Z",
    "symbol": "AAPL",
@@ -1909,7 +1951,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 38,
    "timestamp": "2025-02-25T21:00:00Z",
    "symbol": "AAPL",
@@ -1923,7 +1965,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 39,
    "timestamp": "2025-02-26T21:00:00Z",
    "symbol": "AAPL",
@@ -1937,7 +1979,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 40,
    "timestamp": "2025-02-27T21:00:00Z",
    "symbol": "AAPL",
@@ -1951,7 +1993,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 41,
    "timestamp": "2025-02-28T21:00:00Z",
    "symbol": "AAPL",
@@ -1965,7 +2007,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 42,
    "timestamp": "2025-03-03T21:00:00Z",
    "symbol": "AAPL",
@@ -1979,7 +2021,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 43,
    "timestamp": "2025-03-04T21:00:00Z",
    "symbol": "AAPL",
@@ -1993,7 +2035,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 44,
    "timestamp": "2025-03-05T21:00:00Z",
    "symbol": "AAPL",
@@ -2007,7 +2049,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 45,
    "timestamp": "2025-03-06T21:00:00Z",
    "symbol": "AAPL",
@@ -2021,7 +2063,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 46,
    "timestamp": "2025-03-07T21:00:00Z",
    "symbol": "AAPL",
@@ -2035,7 +2077,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 47,
    "timestamp": "2025-03-10T21:00:00Z",
    "symbol": "AAPL",
@@ -2049,7 +2091,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 48,
    "timestamp": "2025-03-11T21:00:00Z",
    "symbol": "AAPL",
@@ -2063,21 +2105,21 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 49,
    "timestamp": "2025-03-12T21:00:00Z",
    "symbol": "AAPL",
    "agent": "PICARD",
    "kind": "WAIT",
-   "reason": "NEO's own counter-case is bearish, so the thesis is contested.",
+   "reason": "HAWKEYE did not put AAPL on watch.",
    "detail": {
-    "scout_verdict": "WATCH",
-    "scout_score": 0.6478,
+    "scout_verdict": "SKIP",
+    "scout_score": 0.5978,
     "risk_verdict": "APPROVE"
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 50,
    "timestamp": "2025-03-13T21:00:00Z",
    "symbol": "AAPL",
@@ -2086,12 +2128,12 @@
    "reason": "approved",
    "detail": {
     "scout_verdict": "WATCH",
-    "scout_score": 0.8196,
+    "scout_score": 0.7696,
     "risk_verdict": "APPROVE"
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 51,
    "timestamp": "2025-03-13T21:00:00Z",
    "symbol": "AAPL",
@@ -2105,7 +2147,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 52,
    "timestamp": "2025-03-14T21:00:00Z",
    "symbol": "AAPL",
@@ -2119,7 +2161,7 @@
    }
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 53,
    "timestamp": "2025-03-14T21:00:00Z",
    "symbol": "AAPL",
@@ -2129,7 +2171,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 54,
    "timestamp": "2025-03-17T21:00:00Z",
    "symbol": "AAPL",
@@ -2139,7 +2181,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 55,
    "timestamp": "2025-03-18T21:00:00Z",
    "symbol": "AAPL",
@@ -2149,7 +2191,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 56,
    "timestamp": "2025-03-19T21:00:00Z",
    "symbol": "AAPL",
@@ -2159,7 +2201,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 57,
    "timestamp": "2025-03-20T21:00:00Z",
    "symbol": "AAPL",
@@ -2169,7 +2211,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 58,
    "timestamp": "2025-03-21T21:00:00Z",
    "symbol": "AAPL",
@@ -2179,7 +2221,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 59,
    "timestamp": "2025-03-24T21:00:00Z",
    "symbol": "AAPL",
@@ -2189,7 +2231,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 60,
    "timestamp": "2025-03-25T21:00:00Z",
    "symbol": "AAPL",
@@ -2199,7 +2241,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 61,
    "timestamp": "2025-03-26T21:00:00Z",
    "symbol": "AAPL",
@@ -2209,7 +2251,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 62,
    "timestamp": "2025-03-27T21:00:00Z",
    "symbol": "AAPL",
@@ -2219,7 +2261,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 63,
    "timestamp": "2025-03-28T21:00:00Z",
    "symbol": "AAPL",
@@ -2229,7 +2271,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 64,
    "timestamp": "2025-03-31T21:00:00Z",
    "symbol": "AAPL",
@@ -2239,7 +2281,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 65,
    "timestamp": "2025-04-01T21:00:00Z",
    "symbol": "AAPL",
@@ -2249,7 +2291,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 66,
    "timestamp": "2025-04-02T21:00:00Z",
    "symbol": "AAPL",
@@ -2259,7 +2301,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 67,
    "timestamp": "2025-04-03T21:00:00Z",
    "symbol": "AAPL",
@@ -2269,7 +2311,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 68,
    "timestamp": "2025-04-04T21:00:00Z",
    "symbol": "AAPL",
@@ -2279,7 +2321,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 69,
    "timestamp": "2025-04-07T21:00:00Z",
    "symbol": "AAPL",
@@ -2289,7 +2331,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 70,
    "timestamp": "2025-04-08T21:00:00Z",
    "symbol": "AAPL",
@@ -2299,7 +2341,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 71,
    "timestamp": "2025-04-09T21:00:00Z",
    "symbol": "AAPL",
@@ -2309,7 +2351,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 72,
    "timestamp": "2025-04-10T21:00:00Z",
    "symbol": "AAPL",
@@ -2319,7 +2361,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 73,
    "timestamp": "2025-04-11T21:00:00Z",
    "symbol": "AAPL",
@@ -2329,7 +2371,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 74,
    "timestamp": "2025-04-14T21:00:00Z",
    "symbol": "AAPL",
@@ -2339,7 +2381,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 75,
    "timestamp": "2025-04-15T21:00:00Z",
    "symbol": "AAPL",
@@ -2349,7 +2391,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 76,
    "timestamp": "2025-04-16T21:00:00Z",
    "symbol": "AAPL",
@@ -2359,7 +2401,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 77,
    "timestamp": "2025-04-17T21:00:00Z",
    "symbol": "AAPL",
@@ -2369,7 +2411,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 78,
    "timestamp": "2025-04-18T21:00:00Z",
    "symbol": "AAPL",
@@ -2379,7 +2421,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 79,
    "timestamp": "2025-04-21T21:00:00Z",
    "symbol": "AAPL",
@@ -2389,7 +2431,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 80,
    "timestamp": "2025-04-22T21:00:00Z",
    "symbol": "AAPL",
@@ -2399,7 +2441,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 81,
    "timestamp": "2025-04-23T21:00:00Z",
    "symbol": "AAPL",
@@ -2409,7 +2451,7 @@
    "detail": {}
   },
   {
-   "run_id": "5f4eb66d-ffcd-4544-8563-d4e3e0b2f52f",
+   "run_id": "35e03278-5734-4855-9ac5-39b177fdb447",
    "sequence": 82,
    "timestamp": "2025-04-23T21:00:00Z",
    "symbol": "AAPL",

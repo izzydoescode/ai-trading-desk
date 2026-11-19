@@ -47,6 +47,15 @@ export interface TradePlan {
   reward_to_risk: number;
 }
 
+export interface TradeSetup {
+  strategy: "BREAKOUT" | "TREND_CONTINUATION" | "BOLLINGER_REVERSION";
+  entry_reference: number;
+  stop: number;
+  target: number;
+  confirmation: string;
+  invalidation: string;
+}
+
 export interface RiskCheck {
   name: string;
   limit: string;
@@ -97,17 +106,14 @@ export interface DeskReport {
   chart: {
     thesis: Analysis;
     counter_case: Analysis;
-    /** Entry pattern that produced the levels; null when none qualified. */
-    strategy?: "BREAKOUT" | "TREND_CONTINUATION" | "BOLLINGER_REVERSION" | null;
-    /** One line per pattern NEO considered, with why it did or did not trigger. */
-    strategy_notes?: string[];
     support: number | null;
     resistance: number | null;
-    entry_reference: number | null;
-    stop: number | null;
-    target: number | null;
-    confirmation: string;
-    invalidation: string;
+    /** One line per pattern NEO considered, with why it did or did not trigger. */
+    strategy_notes: string[];
+    /** Present only when a pattern triggered; always complete when present. */
+    setup: TradeSetup | null;
+    /** With no setup: what would have to happen for one to appear. */
+    watch_for: string | null;
   };
   news: {
     verdict: Classification;
