@@ -178,7 +178,7 @@ class ScoutVerdict(StrEnum):
 class ScoutSignalKind(StrEnum):
     NEW_52_WEEK_HIGH = "NEW_52_WEEK_HIGH"
     NEW_52_WEEK_LOW = "NEW_52_WEEK_LOW"
-    BREAKOUT_ABOVE_PRIOR_DAY_HIGH = "BREAKOUT_ABOVE_PRIOR_DAY_HIGH"
+    BIG_PERCENT_GAINER = "BIG_PERCENT_GAINER"
     BREAKDOWN_BELOW_PRIOR_DAY_LOW = "BREAKDOWN_BELOW_PRIOR_DAY_LOW"
 
 
@@ -190,9 +190,19 @@ class ScoutSignal(Model):
     """
 
     kind: ScoutSignalKind
+    # The price the move is measured against: the yearly extreme, the prior day's
+    # low, or for a big percent gainer the previous close.
     level: float = Field(gt=0)
     is_bullish: bool
     volume_confirmed: bool
+    # The day's gain in percent; only a big percent gainer carries it.
+    change_pct: float | None = None
+
+    @model_validator(mode="after")
+    def only_a_big_gainer_carries_its_gain(self) -> Self:
+        if (self.change_pct is not None) != (self.kind == ScoutSignalKind.BIG_PERCENT_GAINER):
+            raise ValueError("change_pct is required for a big percent gainer and no other signal")
+        return self
 
 
 class ScoutReport(Model):
